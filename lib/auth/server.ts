@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { FirebaseConfigError, getAdminAuth } from "@/lib/firebase/admin";
 import { SESSION_COOKIE, SESSION_MAX_AGE_MS } from "./cookie";
@@ -12,7 +13,8 @@ import { SESSION_COOKIE, SESSION_MAX_AGE_MS } from "./cookie";
  * for a session cookie: an httpOnly credential the server can verify on every
  * render without JavaScript being involved.
  *
- * This is what makes `/results` and `/progress` safe to render on the server.
+ * This is what makes `/results` and `/conversations` safe to render on the
+ * server.
  */
 
 export { SESSION_COOKIE, SESSION_MAX_AGE_MS };
@@ -32,8 +34,11 @@ export interface AuthUser {
  * trip per page would be felt. Sign-out clears the cookie, so the exposure is
  * limited to a stolen cookie remaining usable until it expires. Routes that act
  * destructively should call `requireFreshUser` instead.
+ *
+ * Cached per request so a page and the chrome it renders can both ask without
+ * paying for a second verification.
  */
-export async function getCurrentUser(): Promise<AuthUser | null> {
+export const getCurrentUser = cache(async function getCurrentUser(): Promise<AuthUser | null> {
   const store = await cookies();
   const cookie = store.get(SESSION_COOKIE)?.value;
   if (!cookie) return null;
@@ -52,7 +57,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     if (caught instanceof FirebaseConfigError) throw caught;
     return null;
   }
-}
+});
 
 /** Like `getCurrentUser`, but rejects a cookie whose tokens were revoked. */
 export async function getFreshUser(): Promise<AuthUser | null> {

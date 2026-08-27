@@ -1,11 +1,22 @@
 import { Wordmark } from "@/components/marketing/Wordmark";
 import { AccountMenu } from "@/components/auth/AccountMenu";
+import { getCurrentUser } from "@/lib/auth/server";
 
-/** Minimal product chrome shared by the in-app routes. */
-export function TopBar({ streak }: { streak?: number }) {
+/**
+ * Minimal product chrome shared by the in-app routes.
+ *
+ * The wordmark points at the dashboard once you're signed in, since the
+ * marketing page has nothing left to offer you at that point.
+ */
+export async function TopBar({ streak }: { streak?: number }) {
+  const user = await getCurrentUser().catch(() => null);
+
   return (
     <header className="flex items-center justify-between gap-4 border-b border-hairline pb-4">
-      <Wordmark />
+      <Wordmark
+        href={user ? "/conversations" : "/"}
+        label={user ? "Your conversations" : "Poise home"}
+      />
       <nav className="flex items-center gap-5 text-[0.82rem]">
         {typeof streak === "number" && streak > 0 ? (
           <span
