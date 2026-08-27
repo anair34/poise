@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/daily-prompt",
+      "schedule": "30 23 * * *"
+    }
+  ]
+}

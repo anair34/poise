@@ -1,5 +1,13 @@
 import type { Prompt } from "./types";
 
+/**
+ * The static prompt library.
+ *
+ * Since prompts became LLM-generated per day (`lib/dailyPrompts.ts`), this is no
+ * longer the source of today's challenge. It has two remaining jobs: the
+ * fallback when scheduled generation has not run, and the "New prompt" option
+ * for someone who wants extra practice beyond the daily one.
+ */
 export const PROMPTS: Prompt[] = [
   {
     id: "changed-mind",
@@ -33,15 +41,23 @@ export const PROMPTS: Prompt[] = [
   },
 ];
 
-/** Deterministic prompt-of-the-day so every visitor sees the same challenge. */
-export function getDailyPrompt(date = new Date()): Prompt {
-  const daysSinceEpoch = Math.floor(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) /
-      86_400_000,
-  );
-  return PROMPTS[daysSinceEpoch % PROMPTS.length];
-}
-
 export function getPromptById(id: string): Prompt | undefined {
   return PROMPTS.find((prompt) => prompt.id === id);
+}
+
+/** A library prompt by index, wrapping. Used for deterministic fallbacks. */
+export function getLibraryPrompt(index: number): Prompt {
+  const size = PROMPTS.length;
+  return PROMPTS[((index % size) + size) % size]!;
+}
+
+/**
+ * The next library prompt, so "New prompt" always changes the challenge.
+ *
+ * An unknown id — a generated daily prompt, say — yields the first library
+ * prompt, which is the right behaviour: it is still a change.
+ */
+export function getNextPrompt(currentId: string): Prompt {
+  const index = PROMPTS.findIndex((prompt) => prompt.id === currentId);
+  return PROMPTS[(index + 1) % PROMPTS.length]!;
 }
