@@ -1,26 +1,29 @@
-import { DEMO_DAY_NUMBER, DEMO_STREAK } from "./demo";
-import type { Prompt, Session } from "./types";
+import { computeMetrics, computeOverallScore } from "./scoring";
+import type { Prompt, ScoreNotes, Session } from "./types";
 
 const MOCK_TRANSCRIPT =
-  "I used to think that speaking well was something you were born with. You either had presence or you didn't. What changed my mind was watching a colleague prepare. She wasn't naturally fluent at all, she just practiced out loud, every day, until the shape of her thinking got clearer. And I realized the confidence I was envying was really just repetition.";
+  "So I guess the opinion I've changed my mind about is that I used to think speaking well was something you were just born with. You either had presence or you didn't, and there wasn't really much you could do about it. What changed my mind was watching a colleague of mine prepare for a big review. She wasn't naturally fluent at all. She just practiced out loud, every single day, until the shape of her thinking got clearer. And by the time she actually presented, everyone in the room thought she was a natural. So I realized the confidence I'd been envying was really just repetition that I hadn't seen.";
 
 function clamp(value: number, min = 40, max = 96): number {
   return Math.round(Math.min(max, Math.max(min, value)));
 }
 
+function noteFor(score: number, strong: string, weak: string): string {
+  return score >= 78 ? strong : weak;
+}
+
 /**
  * Deterministic placeholder analysis derived from the real recording duration,
- * so the results page looks alive before Whisper and GPT are wired up.
+ * so every section of the results page has realistic content to render before
+ * Whisper and GPT are wired up.
  */
 export function buildMockSession(
   id: string,
   prompt: Prompt,
   durationSeconds: number,
 ): Session {
-  const wordCount = MOCK_TRANSCRIPT.trim().split(/\s+/).length;
-  const wordsPerMinute = Math.round(
-    wordCount / Math.max(durationSeconds / 60, 0.15),
-  );
+  const metrics = computeMetrics(MOCK_TRANSCRIPT, durationSeconds);
+  const wordsPerMinute = metrics.wordsPerMinute;
 
   // Reward using more of the minute; penalize rushing.
   const usage = Math.min(durationSeconds / 55, 1);
@@ -33,12 +36,31 @@ export function buildMockSession(
     delivery: clamp(70 + usage * 16 - pacePenalty * 0.4),
   };
 
-  const overallScore = clamp(
-    scores.clarity * 0.3 +
-      scores.structure * 0.3 +
-      scores.concision * 0.2 +
-      scores.delivery * 0.2,
-  );
+  // The same weighting the real path uses, so mock sessions are comparable.
+  const overallScore = computeOverallScore(scores);
+
+  const scoreNotes: ScoreNotes = {
+    clarity: noteFor(
+      scores.clarity,
+      "Your core point was easy to understand.",
+      "The main idea took a few passes to surface.",
+    ),
+    structure: noteFor(
+      scores.structure,
+      "Clear beginning, middle, and landing.",
+      "The turn arrived later than it needed to.",
+    ),
+    concision: noteFor(
+      scores.concision,
+      "Very little wasted language.",
+      "A few sentences circled before committing.",
+    ),
+    delivery: noteFor(
+      scores.delivery,
+      "Steady pace with confident pauses.",
+      "Pace drifted quickly in the middle stretch.",
+    ),
+  };
 
   return {
     id,
@@ -49,28 +71,31 @@ export function buildMockSession(
     transcript: MOCK_TRANSCRIPT,
     overallScore,
     scores,
-    metrics: {
-      wordsPerMinute,
-      fillerWordCount: 4,
-      fillerWords: [
-        { word: "just", count: 2 },
-        { word: "really", count: 1 },
-        { word: "like", count: 1 },
-      ],
-      durationSeconds: Math.round(durationSeconds),
-      wordCount,
-    },
+    scoreNotes,
+    // Computed from the real mock transcript rather than hardcoded, so the mock
+    // session exercises the same metric code the LLM path relies on.
+    metrics,
     feedback: {
-      strength:
-        "You landed on a genuinely specific story instead of a general opinion, and that made the whole answer credible.",
-      opportunity:
-        "The turning point arrived a little late. Say what changed your mind in the first fifteen seconds, then spend the rest earning it.",
+      summary: "You made your point clearly. Now let's make it sharper.",
+      strength: {
+        title: "Strong supporting example",
+        detail:
+          "You used a concrete example to explain why your opinion changed, which made the argument much easier to follow.",
+      },
+      opportunity: {
+        title: "Get to the point sooner.",
+        detail:
+          "You spent the first 22 seconds framing the topic before stating your position. Lead with your conclusion, then explain why.",
+      },
       rewrite:
-        "I used to believe presence was innate — until I watched a colleague practice out loud every single day. The confidence I envied was just repetition.",
+        "I used to think presence was something you were born with. I changed my mind watching a colleague prepare — she practiced out loud every day until her thinking got clear. What I'd been calling natural talent was just repetition I hadn't seen.",
       encouragement:
-        "This is the kind of answer that gets sharper fast. Same prompt shape tomorrow and you'll feel the difference.",
+        "This is the kind of answer that sharpens fast. Same shape tomorrow and you'll feel the difference.",
     },
-    streak: DEMO_STREAK,
-    dayNumber: DEMO_DAY_NUMBER,
+    // Overwritten by the caller with the user's real streak state. Mock mode
+    // fakes the analysis, not the streak.
+    streak: 0,
+    dayNumber: 1,
+    scoringSource: "mock",
   };
 }
