@@ -1,62 +1,303 @@
 import { NextResponse } from "next/server";
+import {
+  ANALYSIS_MODEL,
+  AnalysisError,
+  analyzeTranscript,
+  isOpenAIConfigured,
+  transcribeAudio,
+} from "@/lib/openai";
 import { buildMockSession } from "@/lib/mockAnalysis";
-import { getDailyPrompt, getPromptById } from "@/lib/prompts";
+import { getCurrentUser } from "@/lib/auth/server";
+import { getDailyPromptForDay, resolvePromptById } from "@/lib/dailyPrompts";
+import { getScoringMode, type ScoringMode } from "@/lib/scoringMode";
 import { MAX_DURATION_MS, MIN_DURATION_MS } from "@/lib/recording";
-import { saveSession } from "@/lib/sessionStore";
+import { computeMetrics, computeOverallScore, isTranscriptUsable } from "@/lib/scoring";
+import { createSession } from "@/lib/sessions";
+import { toDayKey } from "@/lib/streaks";
+import { recordPractice } from "@/lib/users";
+import { FirebaseConfigError } from "@/lib/firebase/admin";
+import type { Session } from "@/lib/types";
+
+/**
+ * The analysis pipeline.
+ *
+ *   audio -> OpenAI transcription
+ *         -> deterministic transcript/timing metrics
+ *         -> OpenAI structured rubric scoring + coaching
+ *         -> deterministic overall score
+ *         -> Firestore
+ *
+ * The model rates the four dimensions. The overall score is computed here, from
+ * those four, so it is reproducible and always explainable by a dimension.
+ */
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
+function log(stage: string, id: string, extra?: Record<string, unknown>) {
+  const details = extra
+    ? ` ${Object.entries(extra)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(" ")}`
+    : "";
+  console.info(`[analyze:${id}] ${stage}${details}`);
+}
+
+/**
+ * Timing summary for one request.
+ *
+ * Deliberately shape-only: character counts and durations, never transcript
+ * text. Logs are the easiest place to leak what someone said.
+ */
+function logTimings(
+  requestId: string,
+  mode: ScoringMode,
+  timings: Record<string, number>,
+  totalMs: number,
+) {
+  const parts = Object.entries(timings).map(([stage, ms]) => `${stage}=${ms}ms`);
+  console.info(
+    `[analyze:${requestId}] latency mode=${mode} ${parts.join(" ")} total=${totalMs}ms`,
+  );
+}
+
+function fail(message: string, status: number) {
+  return NextResponse.json({ error: message }, { status });
+}
+
+function handleStorageError(caught: unknown, requestId: string) {
+  if (caught instanceof FirebaseConfigError) {
+    console.error(`[analyze:${requestId}] firebase not configured`);
+    return fail(
+      "Saving sessions isn't configured yet. Add your Firebase credentials to continue.",
+      503,
+    );
+  }
+  console.error(
+    `[analyze:${requestId}] failed to store session:`,
+    caught instanceof Error ? caught.message : caught,
+  );
+  return fail("We analyzed your response but couldn't save it.", 502);
+}
+
 export async function POST(request: Request) {
+  const requestId = crypto.randomUUID();
+  const requestStartedAt = Date.now();
+  const mode = getScoringMode();
+  const timings: Record<string, number> = {};
+
+  // ---- 0. Identify the speaker -----------------------------------------
+  // Before anything expensive. An anonymous session has no owner, no streak,
+  // and no way to be read back, so there is nothing worth spending a
+  // transcription call on.
+  let user;
+  try {
+    user = await getCurrentUser();
+  } catch (caught) {
+    return handleStorageError(caught, requestId);
+  }
+  if (!user) {
+    log("unauthenticated", requestId);
+    return fail("Please sign in to save and see your results.", 401);
+  }
+
+  // ---- 1. Validate the upload ------------------------------------------
   let formData: FormData;
   try {
     formData = await request.formData();
   } catch {
-    return NextResponse.json(
-      { error: "Expected an audio upload." },
-      { status: 400 },
-    );
+    return fail("Expected an audio upload.", 400);
   }
 
   const audio = formData.get("audio");
   if (!(audio instanceof Blob) || audio.size === 0) {
-    return NextResponse.json(
-      { error: "We didn't receive any audio. Please try again." },
-      { status: 400 },
-    );
+    return fail("We didn't receive any audio. Please try again.", 400);
   }
   if (audio.size > MAX_AUDIO_BYTES) {
-    return NextResponse.json(
-      { error: "That recording is too large to analyze." },
-      { status: 413 },
-    );
+    return fail("That recording is too large to analyze.", 413);
   }
 
   const durationSeconds = Number(formData.get("durationSeconds"));
   if (!Number.isFinite(durationSeconds)) {
-    return NextResponse.json(
-      { error: "Missing recording duration." },
-      { status: 400 },
-    );
+    return fail("Missing recording duration.", 400);
   }
   if (durationSeconds * 1000 < MIN_DURATION_MS) {
-    return NextResponse.json(
-      { error: "That recording was too short to analyze." },
-      { status: 422 },
+    return fail("That recording was too short to analyze.", 422);
+  }
+
+  const dayKey = toDayKey();
+  const promptId = String(formData.get("promptId") ?? "");
+
+  let prompt;
+  try {
+    prompt =
+      (promptId ? await resolvePromptById(promptId) : undefined) ??
+      (await getDailyPromptForDay(dayKey));
+  } catch (caught) {
+    return handleStorageError(caught, requestId);
+  }
+
+  const cappedDuration = Math.min(durationSeconds, MAX_DURATION_MS / 1000);
+
+  if (mode === "mock") {
+    log("mock analysis", requestId, { prompt: prompt.id });
+    const session = buildMockSession(crypto.randomUUID(), prompt, cappedDuration);
+    try {
+      const practice = await recordPractice({
+        uid: user.uid,
+        dayKey,
+        overallScore: session.overallScore,
+      });
+      session.streak = practice.streak;
+      session.dayNumber = practice.dayNumber;
+      session.previousScore = practice.previousScore;
+
+      await createSession({
+        session,
+        userId: user.uid,
+        dayKey,
+        scoringSource: "mock",
+      });
+    } catch (caught) {
+      return handleStorageError(caught, requestId);
+    }
+    logTimings(requestId, mode, timings, Date.now() - requestStartedAt);
+    return NextResponse.json({ id: session.id });
+  }
+
+  if (!isOpenAIConfigured()) {
+    log("missing api key", requestId);
+    return fail(
+      "Analysis isn't configured yet. Add an OpenAI API key to continue.",
+      503,
     );
   }
 
-  const promptId = String(formData.get("promptId") ?? "");
-  const prompt = getPromptById(promptId) ?? getDailyPrompt();
+  try {
+    // ---- 2. Transcribe -------------------------------------------------
+    const filename =
+      audio instanceof File && audio.name ? audio.name : "response.webm";
 
-  // TODO: replace with Whisper transcription + GPT analysis.
-  const session = buildMockSession(
-    crypto.randomUUID(),
-    prompt,
-    Math.min(durationSeconds, MAX_DURATION_MS / 1000),
-  );
-  saveSession(session);
+    log("transcription started", requestId, {
+      mode,
+      bytes: audio.size,
+      type: audio.type || "unknown",
+    });
+    const transcriptionStartedAt = Date.now();
+    const transcript = await transcribeAudio(audio, filename);
+    timings.transcription = Date.now() - transcriptionStartedAt;
+    log("transcription completed", requestId, {
+      ms: timings.transcription,
+      chars: transcript.length,
+    });
 
-  return NextResponse.json({ id: session.id });
+    if (!isTranscriptUsable(transcript)) {
+      log("empty transcript", requestId);
+      return fail(
+        "We couldn't make out enough speech in that recording. Find a quieter spot and give it another go.",
+        422,
+      );
+    }
+
+    // ---- 3. Deterministic metrics --------------------------------------
+    const metrics = computeMetrics(transcript, cappedDuration);
+
+    // ---- 4. Rubric scoring and coaching --------------------------------
+    log("analysis started", requestId, {
+      words: metrics.wordCount,
+      wpm: metrics.wordsPerMinute,
+    });
+    const analysisStartedAt = Date.now();
+    const analysis = await analyzeTranscript({ prompt, transcript, metrics });
+    timings.analysis = Date.now() - analysisStartedAt;
+
+    const scores = {
+      clarity: analysis.clarityScore,
+      structure: analysis.structureScore,
+      concision: analysis.concisionScore,
+      delivery: analysis.deliveryScore,
+    };
+    // ---- 5. Overall score, computed here and nowhere else --------------
+    const overallScore = computeOverallScore(scores);
+
+    log("analysis completed", requestId, {
+      ms: timings.analysis,
+      overall: overallScore,
+    });
+
+    // ---- 6. Streak ------------------------------------------------------
+    // Runs before the session is written so the stored document carries the
+    // streak and the previous score it was actually achieved with. Recomputing
+    // those at read time would make an old results page change over time.
+    const practice = await recordPractice({
+      uid: user.uid,
+      dayKey,
+      overallScore,
+    });
+    log("streak updated", requestId, {
+      streak: practice.streak,
+      day: practice.dayNumber,
+      newDay: practice.isNewDay,
+    });
+
+    const session: Session = {
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      promptId: prompt.id,
+      promptText: prompt.text,
+      category: prompt.category,
+      transcript,
+      overallScore,
+      scores,
+      scoreNotes: analysis.scoreNotes,
+      metrics,
+      feedback: {
+        summary: analysis.summary,
+        strength: {
+          title: analysis.strength.title,
+          detail: analysis.strength.explanation,
+        },
+        opportunity: {
+          title: analysis.improvement.title,
+          detail: analysis.improvement.explanation,
+        },
+        rewrite: analysis.exampleRewrite,
+        encouragement: analysis.encouragement,
+      },
+      streak: practice.streak,
+      dayNumber: practice.dayNumber,
+      previousScore: practice.previousScore,
+      scoringSource: "llm",
+    };
+
+    // ---- 7. Persist ----------------------------------------------------
+    await createSession({
+      session,
+      userId: user.uid,
+      dayKey,
+      scoringSource: "llm",
+      modelVersion: ANALYSIS_MODEL,
+    });
+    log("session stored", requestId, { session: session.id });
+
+    logTimings(requestId, mode, timings, Date.now() - requestStartedAt);
+    return NextResponse.json({ id: session.id });
+  } catch (caught) {
+    if (caught instanceof FirebaseConfigError) {
+      return handleStorageError(caught, requestId);
+    }
+    if (caught instanceof AnalysisError) {
+      // Log the underlying cause server-side; never return it to the client.
+      console.error(
+        `[analyze:${requestId}] failed at ${caught.stage}:`,
+        caught.cause instanceof Error ? caught.cause.message : caught.cause,
+      );
+      logTimings(requestId, mode, timings, Date.now() - requestStartedAt);
+      return fail(caught.userMessage, caught.status);
+    }
+    console.error(`[analyze:${requestId}] unexpected failure:`, caught);
+    return fail("Something went wrong analyzing your response.", 500);
+  }
 }
