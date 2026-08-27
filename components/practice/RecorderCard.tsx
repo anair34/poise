@@ -11,7 +11,6 @@ import type { RecorderState } from "@/lib/types";
  * preview. Hook-free on purpose so it can render on the server.
  */
 export function RecorderCard({
-  dayNumber,
   category,
   streak,
   prompt,
@@ -27,7 +26,6 @@ export function RecorderCard({
   onCancel,
   className,
 }: {
-  dayNumber: number;
   category: string;
   streak: number;
   prompt: string;
@@ -54,11 +52,7 @@ export function RecorderCard({
         className,
       )}
     >
-      <ChallengeHeader
-        dayNumber={dayNumber}
-        category={category}
-        streak={streak}
-      />
+      <ChallengeHeader category={category} streak={streak} />
 
       <div className="px-6 pb-7 pt-7 sm:px-9 sm:pb-9 sm:pt-9">
         <PromptBlock prompt={prompt} />

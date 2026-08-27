@@ -9,6 +9,11 @@ export const metadata: Metadata = {
     "Build clarity, confidence, and presence through one daily speaking exercise and personalized AI feedback.",
 };
 
+/**
+ * Deliberately free of any session lookup. Reading cookies here would opt every
+ * route into dynamic rendering, including the landing page, which needs no
+ * identity at all. Auth context lives in the (app) group layout instead.
+ */
 export default function RootLayout({
   children,
 }: {

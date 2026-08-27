@@ -17,6 +17,11 @@ const variants: Record<Variant, string> = {
     "border border-hairline bg-canvas px-6 py-3.5 text-ink hover:border-ink/25 hover:bg-paper",
 };
 
+/** Shared styling so a real <button> can match a link-styled Button. */
+export function buttonClasses(variant: Variant = "primary", className?: string) {
+  return cn(base, variants[variant], className);
+}
+
 type ButtonProps = {
   variant?: Variant;
   children: ReactNode;
