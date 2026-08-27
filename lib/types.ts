@@ -83,6 +83,12 @@ export type ScoringSource = "llm" | "mock";
 export interface Session {
   id: string;
   createdAt: string;
+  /**
+   * The UTC day this session counted toward, YYYY-MM-DD. Matches the day key
+   * used by streaks and the daily prompt, so the calendar and the streak can
+   * never disagree about which square a session belongs in.
+   */
+  challengeDate: string;
   promptId: string;
   promptText: string;
   category: Category;

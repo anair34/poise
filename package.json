@@ -7,9 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "check": "npm run check:scoring && npm run check:streaks",
+    "check": "npm run check:scoring && npm run check:streaks && npm run check:completion",
     "check:scoring": "node --experimental-strip-types scripts/check-scoring.mjs",
     "check:streaks": "node --experimental-strip-types scripts/check-streaks.mjs",
+    "check:completion": "node --experimental-strip-types scripts/check-completion.mjs",
     "prompt:today": "node --experimental-strip-types scripts/generate-prompt.mjs"
   },
   "dependencies": {

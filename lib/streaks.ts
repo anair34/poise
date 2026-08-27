@@ -139,3 +139,66 @@ export function hasPracticedToday(
 ): boolean {
   return state.lastPracticeDay === today;
 }
+
+/**
+ * The full aggregate a completion updates, not just the streak part.
+ *
+ * `totalSessions` and `totalPracticeDays` answer different questions and must
+ * never be conflated: three sessions on one day is `totalSessions: 3` and
+ * `totalPracticeDays: 1`. Conflating them makes a keen user look like a
+ * long-running one, which is exactly the number a streak product must get right.
+ */
+export interface CompletionState extends StreakState {
+  totalSessions: number;
+}
+
+export const INITIAL_COMPLETION_STATE: CompletionState = {
+  ...INITIAL_STREAK_STATE,
+  totalSessions: 0,
+};
+
+export interface Completion {
+  /** True only for the first successful session on this date. */
+  isDailyCompletion: boolean;
+  /**
+   * The streak this session earned, frozen at write time.
+   *
+   * Stored on the session so an old results page keeps showing the streak the
+   * user actually had that day. Deriving it later from current state would make
+   * historical pages silently rewrite themselves.
+   */
+  streakEarned: number;
+  /** Aggregate to persist on `users/{uid}` after this session. */
+  next: CompletionState;
+  didReset: boolean;
+}
+
+/**
+ * Applies one *successfully persisted* session to a user's aggregate.
+ *
+ * Pure, so every rule below is verifiable without Firestore. The caller is
+ * responsible for only invoking this once a session is known to be good —
+ * recording or starting a challenge must not reach here.
+ */
+export function applyCompletion(
+  state: CompletionState,
+  challengeDate: string,
+): Completion {
+  const transition = applyPractice(state, challengeDate);
+
+  return {
+    isDailyCompletion: transition.isNewDay,
+    // On a repeat, `applyPractice` returns the streak untouched, which is
+    // exactly the value this session earned.
+    streakEarned: transition.currentStreak,
+    next: {
+      currentStreak: transition.currentStreak,
+      longestStreak: transition.longestStreak,
+      lastPracticeDay: transition.lastPracticeDay,
+      daysPracticed: transition.daysPracticed,
+      // Every completed attempt counts, retries included.
+      totalSessions: state.totalSessions + 1,
+    },
+    didReset: transition.didReset,
+  };
+}

@@ -62,9 +62,12 @@ export function buildMockSession(
     ),
   };
 
+  const createdAt = new Date().toISOString();
+
   return {
     id,
-    createdAt: new Date().toISOString(),
+    createdAt,
+    challengeDate: createdAt.slice(0, 10),
     promptId: prompt.id,
     promptText: prompt.text,
     category: prompt.category,

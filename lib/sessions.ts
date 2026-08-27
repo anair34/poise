@@ -2,6 +2,15 @@ import "server-only";
 
 import { Timestamp } from "firebase-admin/firestore";
 import { getDb } from "./firebase/admin";
+import { dailyPromptId } from "./dailyPrompts";
+import { applyCompletion, isValidDayKey } from "./streaks";
+import {
+  buildAggregateUpdate,
+  toCompletionState,
+  userDocRef,
+  type CompletionRecord,
+  type UserDoc,
+} from "./users";
 import type { Category, ScoringSource, Session } from "./types";
 
 export const SESSIONS_COLLECTION = "practiceSessions";
@@ -9,7 +18,16 @@ export const SESSIONS_COLLECTION = "practiceSessions";
 /** Flat Firestore document shape. Kept flat so it stays queryable. */
 export interface SessionDoc {
   id: string;
+  /**
+   * Owner. Always taken from the verified session cookie, never from anything
+   * the browser sent.
+   */
   userId: string;
+  /**
+   * The prompt actually answered. Differs from `challengeId` when the user
+   * retries an older prompt: the answer is to that prompt, but the session
+   * still counts toward today's challenge.
+   */
   promptId: string;
   prompt: string;
   promptCategory: string;
@@ -20,7 +38,19 @@ export interface SessionDoc {
    * asked in days, and deriving the day from a timestamp in a Firestore query
    * is not possible.
    */
-  dayKey: string;
+  challengeDate: string;
+  /** Which daily challenge slot this filled, i.e. `daily-{challengeDate}`. */
+  challengeId: string;
+  /**
+   * True only for the first successful session on `challengeDate`. Retries the
+   * same day are real sessions but not new completions.
+   */
+  isDailyCompletion: boolean;
+  /**
+   * The streak this session earned, frozen at write time so an old results page
+   * never rewrites itself.
+   */
+  streakEarned: number;
   durationSeconds: number;
   transcript: string;
 
@@ -57,15 +87,25 @@ export interface SessionDoc {
   scoringSource: ScoringSource;
   modelVersion: string | null;
 
-  streak: number;
   dayNumber: number;
 }
+
+/**
+ * Documents written before the completion model existed use `dayKey` and
+ * `streak`. Reads go through here so one older document cannot crash a page.
+ */
+type LegacySessionDoc = SessionDoc & {
+  dayKey?: string;
+  streak?: number;
+};
 
 export interface CreateSessionInput {
   session: Session;
   /** Required: every session belongs to exactly one signed-in user. */
   userId: string;
-  dayKey: string;
+  challengeDate: string;
+  isDailyCompletion: boolean;
+  streakEarned: number;
   scoringSource?: ScoringSource;
   modelVersion?: string;
 }
@@ -73,7 +113,9 @@ export interface CreateSessionInput {
 function toDoc({
   session,
   userId,
-  dayKey,
+  challengeDate,
+  isDailyCompletion,
+  streakEarned,
   scoringSource = "llm",
   modelVersion,
 }: CreateSessionInput): SessionDoc {
@@ -84,7 +126,10 @@ function toDoc({
     prompt: session.promptText,
     promptCategory: session.category,
     createdAt: Timestamp.fromDate(new Date(session.createdAt)),
-    dayKey,
+    challengeDate,
+    challengeId: dailyPromptId(challengeDate),
+    isDailyCompletion,
+    streakEarned,
     durationSeconds: session.metrics.durationSeconds,
     transcript: session.transcript,
 
@@ -116,18 +161,24 @@ function toDoc({
     scoringSource,
     modelVersion: modelVersion ?? null,
 
-    streak: session.streak,
     dayNumber: session.dayNumber,
   };
 }
 
-function fromDoc(doc: SessionDoc): Session {
+function fromDoc(doc: LegacySessionDoc): Session {
+  const createdAt =
+    doc.createdAt instanceof Timestamp
+      ? doc.createdAt.toDate().toISOString()
+      : new Date().toISOString();
+
   return {
     id: doc.id,
-    createdAt:
-      doc.createdAt instanceof Timestamp
-        ? doc.createdAt.toDate().toISOString()
-        : new Date().toISOString(),
+    createdAt,
+    // Documents written before challengeDate existed fall back to the day they
+    // were created on, which is the same value the field would have held.
+    challengeDate: isValidDayKey(doc.challengeDate)
+      ? doc.challengeDate
+      : createdAt.slice(0, 10),
     promptId: doc.promptId,
     promptText: doc.prompt,
     category: doc.promptCategory as Category,
@@ -162,7 +213,7 @@ function fromDoc(doc: SessionDoc): Session {
       rewrite: doc.exampleRewrite ?? undefined,
       encouragement: doc.encouragement ?? undefined,
     },
-    streak: doc.streak,
+    streak: doc.streakEarned ?? doc.streak ?? 0,
     dayNumber: doc.dayNumber,
     scoringSource: doc.scoringSource ?? undefined,
   };
@@ -172,11 +223,78 @@ function collection() {
   return getDb().collection(SESSIONS_COLLECTION);
 }
 
-export async function createSession(input: CreateSessionInput): Promise<string> {
-  const doc = toDoc(input);
-  // Document id mirrors session id so /results/[id] is a direct lookup.
-  await collection().doc(doc.id).set(doc);
-  return doc.id;
+/**
+ * Writes a completed session and advances the user's aggregate, atomically.
+ *
+ * These were previously two sequential writes, which had a real failure mode: a
+ * streak could be incremented for a session that then failed to save, leaving a
+ * user with a streak and no session behind it. Doing both in one transaction
+ * means a completion is all-or-nothing.
+ *
+ * The transaction is also what makes concurrent submissions safe. Two requests
+ * landing together would otherwise both read the same starting streak and write
+ * back the same incremented value, losing a day and making the result depend on
+ * timing. Firestore aborts and retries the loser against fresh state, so the
+ * second submission sees the first one's write and is correctly classified as a
+ * same-day retry.
+ */
+export async function recordCompletedSession(
+  input: Omit<CreateSessionInput, "isDailyCompletion" | "streakEarned">,
+): Promise<CompletionRecord> {
+  const db = getDb();
+  const sessionRef = collection().doc(input.session.id);
+  const userRef = userDocRef(input.userId);
+
+  return db.runTransaction(async (transaction) => {
+    // Every read must precede every write inside a Firestore transaction.
+    const userSnapshot = await transaction.get(userRef);
+    const userData = userSnapshot.exists
+      ? (userSnapshot.data() as Partial<UserDoc>)
+      : undefined;
+
+    const completion = applyCompletion(
+      toCompletionState(userData),
+      input.challengeDate,
+    );
+    const previousScore = userData?.lastOverallScore ?? null;
+
+    transaction.set(
+      sessionRef,
+      toDoc({
+        ...input,
+        isDailyCompletion: completion.isDailyCompletion,
+        streakEarned: completion.streakEarned,
+        session: {
+          ...input.session,
+          streak: completion.streakEarned,
+          dayNumber: completion.next.daysPracticed,
+          previousScore: previousScore ?? undefined,
+        },
+      }),
+    );
+
+    transaction.set(
+      userRef,
+      buildAggregateUpdate({
+        uid: input.userId,
+        completion,
+        challengeDate: input.challengeDate,
+        existing: userData,
+        isNewDocument: !userSnapshot.exists,
+        overallScore: input.session.overallScore,
+      }),
+      { merge: true },
+    );
+
+    return {
+      sessionId: input.session.id,
+      streakEarned: completion.streakEarned,
+      isDailyCompletion: completion.isDailyCompletion,
+      dayNumber: completion.next.daysPracticed,
+      longestStreak: completion.next.longestStreak,
+      previousScore: previousScore ?? undefined,
+    };
+  });
 }
 
 /**
@@ -203,9 +321,15 @@ export async function getSessionForUser(
   return fromDoc(doc);
 }
 
-export async function getRecentSessionsForUser(
+/**
+ * Every session for a user, newest first.
+ *
+ * Unbounded by name but not in practice: `max` defaults to a page's worth and
+ * an unlimited read of a heavy user's history is never what a page wants.
+ */
+export async function getUserSessions(
   userId: string,
-  max = 30,
+  max = 200,
 ): Promise<Session[]> {
   if (!userId) return [];
   const snapshot = await collection()
@@ -213,20 +337,57 @@ export async function getRecentSessionsForUser(
     .orderBy("createdAt", "desc")
     .limit(max)
     .get();
-  return snapshot.docs.map((doc) => fromDoc(doc.data() as SessionDoc));
+  return snapshot.docs.map((doc) => fromDoc(doc.data() as LegacySessionDoc));
 }
 
-export async function getSessionsForDateRange(
+export async function getRecentUserSessions(
   userId: string,
-  start: Date,
-  end: Date,
+  limit = 30,
+): Promise<Session[]> {
+  return getUserSessions(userId, limit);
+}
+
+/**
+ * Sessions between two day keys, inclusive.
+ *
+ * Ranged on `challengeDate` rather than `createdAt` because the question a
+ * calendar asks is "which days did they complete", and a session's day is the
+ * challenge it counted toward — not the instant the upload finished, which can
+ * land on the other side of midnight.
+ */
+export async function getUserSessionsForDateRange(
+  userId: string,
+  startDate: string,
+  endDate: string,
 ): Promise<Session[]> {
   if (!userId) return [];
+  if (!isValidDayKey(startDate) || !isValidDayKey(endDate)) return [];
+
   const snapshot = await collection()
     .where("userId", "==", userId)
-    .where("createdAt", ">=", Timestamp.fromDate(start))
-    .where("createdAt", "<=", Timestamp.fromDate(end))
-    .orderBy("createdAt", "asc")
+    .where("challengeDate", ">=", startDate)
+    .where("challengeDate", "<=", endDate)
+    .orderBy("challengeDate", "asc")
     .get();
-  return snapshot.docs.map((doc) => fromDoc(doc.data() as SessionDoc));
+  return snapshot.docs.map((doc) => fromDoc(doc.data() as LegacySessionDoc));
+}
+
+/**
+ * Whether a user completed the challenge on a given date.
+ *
+ * Asks for one document rather than counting: existence is the whole answer,
+ * and `limit(1)` keeps the cost flat no matter how many retries that day holds.
+ */
+export async function hasCompletedChallengeOnDate(
+  userId: string,
+  dateKey: string,
+): Promise<boolean> {
+  if (!userId || !isValidDayKey(dateKey)) return false;
+
+  const snapshot = await collection()
+    .where("userId", "==", userId)
+    .where("challengeDate", "==", dateKey)
+    .limit(1)
+    .get();
+  return !snapshot.empty;
 }

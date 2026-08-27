@@ -12,9 +12,8 @@ import { getDailyPromptForDay, resolvePromptById } from "@/lib/dailyPrompts";
 import { getScoringMode, type ScoringMode } from "@/lib/scoringMode";
 import { MAX_DURATION_MS, MIN_DURATION_MS } from "@/lib/recording";
 import { computeMetrics, computeOverallScore, isTranscriptUsable } from "@/lib/scoring";
-import { createSession } from "@/lib/sessions";
+import { recordCompletedSession } from "@/lib/sessions";
 import { toDayKey } from "@/lib/streaks";
-import { recordPractice } from "@/lib/users";
 import { FirebaseConfigError } from "@/lib/firebase/admin";
 import type { Session } from "@/lib/types";
 
@@ -145,20 +144,15 @@ export async function POST(request: Request) {
     log("mock analysis", requestId, { prompt: prompt.id });
     const session = buildMockSession(crypto.randomUUID(), prompt, cappedDuration);
     try {
-      const practice = await recordPractice({
-        uid: user.uid,
-        dayKey,
-        overallScore: session.overallScore,
-      });
-      session.streak = practice.streak;
-      session.dayNumber = practice.dayNumber;
-      session.previousScore = practice.previousScore;
-
-      await createSession({
+      const record = await recordCompletedSession({
         session,
         userId: user.uid,
-        dayKey,
+        challengeDate: dayKey,
         scoringSource: "mock",
+      });
+      log("completion recorded", requestId, {
+        streak: record.streakEarned,
+        daily: record.isDailyCompletion,
       });
     } catch (caught) {
       return handleStorageError(caught, requestId);
@@ -227,24 +221,10 @@ export async function POST(request: Request) {
       overall: overallScore,
     });
 
-    // ---- 6. Streak ------------------------------------------------------
-    // Runs before the session is written so the stored document carries the
-    // streak and the previous score it was actually achieved with. Recomputing
-    // those at read time would make an old results page change over time.
-    const practice = await recordPractice({
-      uid: user.uid,
-      dayKey,
-      overallScore,
-    });
-    log("streak updated", requestId, {
-      streak: practice.streak,
-      day: practice.dayNumber,
-      newDay: practice.isNewDay,
-    });
-
     const session: Session = {
       id: crypto.randomUUID(),
       createdAt: new Date().toISOString(),
+      challengeDate: dayKey,
       promptId: prompt.id,
       promptText: prompt.text,
       category: prompt.category,
@@ -266,21 +246,30 @@ export async function POST(request: Request) {
         rewrite: analysis.exampleRewrite,
         encouragement: analysis.encouragement,
       },
-      streak: practice.streak,
-      dayNumber: practice.dayNumber,
-      previousScore: practice.previousScore,
+      // Filled in by the transaction below, which is the only thing that can
+      // know them without racing a concurrent submission.
+      streak: 0,
+      dayNumber: 0,
       scoringSource: "llm",
     };
 
-    // ---- 7. Persist ----------------------------------------------------
-    await createSession({
+    // ---- 6. Persist and advance the streak, atomically -------------------
+    // One transaction: either the session exists and the streak reflects it, or
+    // neither happened. Splitting these allowed a streak to advance for a
+    // session that then failed to save.
+    const record = await recordCompletedSession({
       session,
       userId: user.uid,
-      dayKey,
+      challengeDate: dayKey,
       scoringSource: "llm",
       modelVersion: ANALYSIS_MODEL,
     });
-    log("session stored", requestId, { session: session.id });
+    log("session stored", requestId, {
+      session: session.id,
+      streak: record.streakEarned,
+      day: record.dayNumber,
+      daily: record.isDailyCompletion,
+    });
 
     logTimings(requestId, mode, timings, Date.now() - requestStartedAt);
     return NextResponse.json({ id: session.id });

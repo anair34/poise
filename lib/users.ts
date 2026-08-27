@@ -1,10 +1,12 @@
 import "server-only";
 
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, type DocumentReference } from "firebase-admin/firestore";
 import { getDb } from "./firebase/admin";
 import {
+  INITIAL_COMPLETION_STATE,
   INITIAL_STREAK_STATE,
-  applyPractice,
+  type Completion,
+  type CompletionState,
   type StreakState,
 } from "./streaks";
 
@@ -33,6 +35,13 @@ export interface UserDoc {
   /** Canonical day key for streak arithmetic. See `lastPracticeDate`. */
   lastPracticeDay: string | null;
   daysPracticed: number;
+
+  /**
+   * Unique calendar days with at least one completed session. Distinct from
+   * `totalSessions`, which counts every attempt: three sessions in one day is
+   * three sessions and one practice day.
+   */
+  totalPracticeDays: number;
 
   /**
    * Day key of the first ever recorded session. Set once and never rewritten,
@@ -69,14 +78,100 @@ function collection() {
   return getDb().collection(USERS_COLLECTION);
 }
 
+/** Shared with `lib/sessions.ts`, which writes this document transactionally. */
+export function userDocRef(uid: string): DocumentReference {
+  return collection().doc(uid);
+}
+
 function toStreakState(doc: Partial<UserDoc> | undefined): StreakState {
   if (!doc) return { ...INITIAL_STREAK_STATE };
   return {
     currentStreak: doc.currentStreak ?? 0,
     longestStreak: doc.longestStreak ?? 0,
+    // `daysPracticed` is the older name for the same count; either may be
+    // present depending on when the document was last written.
     lastPracticeDay: doc.lastPracticeDay ?? null,
-    daysPracticed: doc.daysPracticed ?? 0,
+    daysPracticed: doc.totalPracticeDays ?? doc.daysPracticed ?? 0,
   };
+}
+
+/** Reads the aggregate a completion operates on, tolerating older documents. */
+export function toCompletionState(
+  doc: Partial<UserDoc> | undefined,
+): CompletionState {
+  if (!doc) return { ...INITIAL_COMPLETION_STATE };
+  return {
+    ...toStreakState(doc),
+    totalSessions: doc.totalSessions ?? 0,
+  };
+}
+
+export interface CompletionRecord {
+  sessionId: string;
+  /** Streak this session earned, frozen onto the session document. */
+  streakEarned: number;
+  isDailyCompletion: boolean;
+  /** Distinct days practiced, shown as "Day N". */
+  dayNumber: number;
+  longestStreak: number;
+  /** Overall score of the prior session, or undefined for a first session. */
+  previousScore?: number;
+}
+
+/**
+ * The `users/{uid}` half of a completion, as a merge payload.
+ *
+ * Kept separate from the transaction that applies it so the field-by-field
+ * decisions — which are set-once, which advance — are readable in one place.
+ */
+export function buildAggregateUpdate({
+  uid,
+  completion,
+  challengeDate,
+  existing,
+  isNewDocument,
+  overallScore,
+}: {
+  uid: string;
+  completion: Completion;
+  challengeDate: string;
+  existing: Partial<UserDoc> | undefined;
+  isNewDocument: boolean;
+  overallScore: number;
+}): Record<string, unknown> {
+  const { next } = completion;
+
+  const update: Record<string, unknown> = {
+    uid,
+    currentStreak: next.currentStreak,
+    longestStreak: next.longestStreak,
+    // One source, three names, written together so they cannot drift.
+    lastPracticeDay: next.lastPracticeDay,
+    lastPracticeDate: next.lastPracticeDay,
+    lastCompletedChallengeDate: next.lastPracticeDay,
+    // Both names for the unique-day count, likewise written as one value.
+    daysPracticed: next.daysPracticed,
+    totalPracticeDays: next.daysPracticed,
+    totalSessions: next.totalSessions,
+    lastOverallScore: overallScore,
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+
+  // Set once. `??=` would rewrite it whenever the stored value is null, so the
+  // existing value is checked explicitly.
+  if (!existing?.firstPracticeDate) {
+    update.firstPracticeDate = challengeDate;
+  }
+
+  // A session can arrive before the sign-in handler created the document — a
+  // first practice on a repaired cookie, say. Backfill the creation-only fields
+  // rather than leave a document with no createdAt.
+  if (isNewDocument) {
+    update.createdAt = FieldValue.serverTimestamp();
+    update.lastSeenAt = FieldValue.serverTimestamp();
+  }
+
+  return update;
 }
 
 /**
@@ -87,6 +182,7 @@ function toStreakState(doc: Partial<UserDoc> | undefined): StreakState {
  */
 const INITIAL_PRACTICE_STATE = {
   ...INITIAL_STREAK_STATE,
+  totalPracticeDays: 0,
   firstPracticeDate: null,
   lastPracticeDate: null,
   lastCompletedChallengeDate: null,
@@ -137,104 +233,47 @@ export async function ensureUser(input: UserProfileInput): Promise<void> {
   });
 }
 
-export interface UserState extends StreakState {
+/**
+ * Everything the product needs to render a user's gamification state.
+ *
+ * A single document read. The alternative — deriving these by scanning session
+ * history — costs a read per session and grows with the most engaged users.
+ */
+export interface UserGamification {
   uid: string;
+  currentStreak: number;
+  longestStreak: number;
+  /** Every completed attempt, retries included. */
   totalSessions: number;
+  /** Unique calendar days with at least one completion. */
+  totalPracticeDays: number;
+  firstPracticeDate: string | null;
+  lastPracticeDate: string | null;
+  lastCompletedChallengeDate: string | null;
   lastOverallScore: number | null;
 }
 
-export async function getUserState(uid: string): Promise<UserState> {
+export async function getUserGamification(
+  uid: string,
+): Promise<UserGamification> {
   const snapshot = await collection().doc(uid).get();
   const data = snapshot.exists
     ? (snapshot.data() as Partial<UserDoc>)
     : undefined;
 
+  const state = toCompletionState(data);
+  const lastPracticeDate = data?.lastPracticeDate ?? state.lastPracticeDay;
+
   return {
     uid,
-    ...toStreakState(data),
-    totalSessions: data?.totalSessions ?? 0,
+    currentStreak: state.currentStreak,
+    longestStreak: state.longestStreak,
+    totalSessions: state.totalSessions,
+    totalPracticeDays: state.daysPracticed,
+    firstPracticeDate: data?.firstPracticeDate ?? null,
+    lastPracticeDate,
+    lastCompletedChallengeDate:
+      data?.lastCompletedChallengeDate ?? lastPracticeDate,
     lastOverallScore: data?.lastOverallScore ?? null,
   };
-}
-
-export interface PracticeRecord {
-  /** Streak after this session. */
-  streak: number;
-  longestStreak: number;
-  /** Distinct days practiced, shown as "Day N". */
-  dayNumber: number;
-  /** Overall score of the prior session, or undefined for a first session. */
-  previousScore?: number;
-  isNewDay: boolean;
-}
-
-/**
- * Records a completed session against a user's streak.
- *
- * Runs in a transaction because two submissions landing together would
- * otherwise both read the same starting streak and each write back the same
- * incremented value — losing one day and, worse, making the streak
- * non-deterministic. Firestore retries the transaction on contention.
- */
-export async function recordPractice({
-  uid,
-  dayKey,
-  overallScore,
-}: {
-  uid: string;
-  dayKey: string;
-  overallScore: number;
-}): Promise<PracticeRecord> {
-  const db = getDb();
-  const ref = collection().doc(uid);
-
-  return db.runTransaction(async (transaction) => {
-    const snapshot = await transaction.get(ref);
-    const data = snapshot.exists
-      ? (snapshot.data() as Partial<UserDoc>)
-      : undefined;
-
-    const previous = toStreakState(data);
-    const transition = applyPractice(previous, dayKey);
-    const previousScore = data?.lastOverallScore ?? null;
-
-    const update: Record<string, unknown> = {
-      uid,
-      currentStreak: transition.currentStreak,
-      longestStreak: transition.longestStreak,
-      // One source, three field names, written together — they cannot drift.
-      lastPracticeDay: transition.lastPracticeDay,
-      lastPracticeDate: transition.lastPracticeDay,
-      lastCompletedChallengeDate: transition.lastPracticeDay,
-      daysPracticed: transition.daysPracticed,
-      totalSessions: (data?.totalSessions ?? 0) + 1,
-      lastOverallScore: overallScore,
-      updatedAt: FieldValue.serverTimestamp(),
-    };
-
-    // Set once. `??=` would still rewrite it whenever the stored value is null,
-    // so the existing value is checked explicitly.
-    if (!data?.firstPracticeDate) {
-      update.firstPracticeDate = transition.lastPracticeDay;
-    }
-
-    // A session can reach this before the sign-in handler has created the
-    // document — a first practice on a repaired cookie, say. Backfill the
-    // fields that are only ever written at creation, so the document is never
-    // left without a createdAt.
-    if (!snapshot.exists) {
-      update.createdAt = FieldValue.serverTimestamp();
-      update.lastSeenAt = FieldValue.serverTimestamp();
-    }
-
-    transaction.set(ref, update, { merge: true });
-
-    return {
-      streak: transition.currentStreak,
-      longestStreak: transition.longestStreak,
-      dayNumber: transition.daysPracticed,
-      previousScore: previousScore ?? undefined,
-      isNewDay: transition.isNewDay,
-    };
-  });
 }
