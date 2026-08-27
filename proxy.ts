@@ -15,7 +15,7 @@ import { SESSION_COOKIE } from "@/lib/auth/cookie";
  * this version of Next.)
  */
 
-const PROTECTED = ["/results", "/progress"];
+const PROTECTED = ["/results", "/conversations"];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
@@ -34,5 +34,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/results/:path*", "/progress/:path*"],
+  matcher: ["/results/:path*", "/conversations/:path*"],
 };

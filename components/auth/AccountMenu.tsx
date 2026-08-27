@@ -95,12 +95,12 @@ export function AccountMenu() {
             ) : null}
           </div>
           <Link
-            href="/progress"
+            href="/conversations"
             role="menuitem"
             onClick={() => setIsOpen(false)}
             className="block px-3.5 py-2.5 text-[0.85rem] text-ink-soft transition-colors duration-150 hover:bg-paper hover:text-ink"
           >
-            Progress
+            Your conversations
           </Link>
           <button
             type="button"
