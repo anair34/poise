@@ -1,4 +1,14 @@
-import type { Scores, SpeechMetrics } from "./types";
+import { USABLE_WORD_COUNT } from "./config.ts";
+import type { SpeechMetrics } from "../types.ts";
+
+/**
+ * Deterministic measurements of a transcript.
+ *
+ * Nothing here is a judgement — these are counts and ratios, computed the same
+ * way every time. They serve two purposes: they are shown to the user as fact,
+ * and they are handed to the model as evidence so it reasons from measurements
+ * rather than guessing at pace or filler use.
+ */
 
 /**
  * Filler phrases, each matched on word boundaries so tokens inside unrelated
@@ -147,6 +157,58 @@ export function computeWordsPerMinute(
   return Math.round(wordCount / (durationSeconds / 60));
 }
 
+export interface SentenceStats {
+  sentenceCount: number;
+  averageSentenceLength: number;
+  /** Population variance of sentence lengths, in words. */
+  sentenceLengthVariance: number;
+}
+
+/**
+ * Sentence shape, from transcriber punctuation.
+ *
+ * Variance matters as much as the average: uniformly medium sentences read as
+ * monotone, while a mix of short and long reads as natural speech. When the
+ * transcript has no terminal punctuation at all the whole thing counts as one
+ * sentence, which is itself the honest description of an unbroken ramble.
+ */
+export function computeSentenceStats(transcript: string): SentenceStats {
+  const trimmed = transcript.trim();
+  if (!trimmed) {
+    return {
+      sentenceCount: 0,
+      averageSentenceLength: 0,
+      sentenceLengthVariance: 0,
+    };
+  }
+
+  const lengths = trimmed
+    .split(/[.!?]+/)
+    .map((sentence) => countWords(sentence))
+    .filter((length) => length > 0);
+
+  if (lengths.length === 0) {
+    const total = countWords(trimmed);
+    return {
+      sentenceCount: total > 0 ? 1 : 0,
+      averageSentenceLength: total,
+      sentenceLengthVariance: 0,
+    };
+  }
+
+  const total = lengths.reduce((sum, length) => sum + length, 0);
+  const mean = total / lengths.length;
+  const variance =
+    lengths.reduce((sum, length) => sum + (length - mean) ** 2, 0) /
+    lengths.length;
+
+  return {
+    sentenceCount: lengths.length,
+    averageSentenceLength: round(mean, 2),
+    sentenceLengthVariance: round(variance, 2),
+  };
+}
+
 export function computeMetrics(
   transcript: string,
   durationSeconds: number,
@@ -154,6 +216,7 @@ export function computeMetrics(
   const wordCount = countWords(transcript);
   const fillers = countFillers(transcript);
   const hedgeCount = countHedges(transcript);
+  const sentences = computeSentenceStats(transcript);
 
   return {
     wordCount,
@@ -166,33 +229,13 @@ export function computeMetrics(
     hedgeRate: ratePer100Words(hedgeCount, wordCount),
     repetitionRate: computeRepetitionRate(transcript),
     lexicalDiversity: computeLexicalDiversity(transcript),
+    sentenceCount: sentences.sentenceCount,
+    averageSentenceLength: sentences.averageSentenceLength,
+    sentenceLengthVariance: sentences.sentenceLengthVariance,
   };
-}
-
-const WEIGHTS: Record<keyof Scores, number> = {
-  clarity: 0.3,
-  structure: 0.25,
-  concision: 0.25,
-  delivery: 0.2,
-};
-
-export function clampScore(value: unknown): number {
-  const numeric = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(numeric)) return 0;
-  return Math.round(Math.min(100, Math.max(0, numeric)));
-}
-
-/** Overall score is always computed here, never chosen by the model. */
-export function computeOverallScore(scores: Scores): number {
-  const weighted =
-    clampScore(scores.clarity) * WEIGHTS.clarity +
-    clampScore(scores.structure) * WEIGHTS.structure +
-    clampScore(scores.concision) * WEIGHTS.concision +
-    clampScore(scores.delivery) * WEIGHTS.delivery;
-  return Math.round(weighted);
 }
 
 /** A transcript this thin means we didn't capture usable speech. */
 export function isTranscriptUsable(transcript: string): boolean {
-  return countWords(transcript) >= 8;
+  return countWords(transcript) >= USABLE_WORD_COUNT;
 }

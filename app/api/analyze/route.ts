@@ -11,7 +11,11 @@ import { getCurrentUser } from "@/lib/auth/server";
 import { getDailyPromptForDay, resolvePromptById } from "@/lib/dailyPrompts";
 import { getScoringMode, type ScoringMode } from "@/lib/scoringMode";
 import { MAX_DURATION_MS, MIN_DURATION_MS } from "@/lib/recording";
-import { computeMetrics, computeOverallScore, isTranscriptUsable } from "@/lib/scoring";
+import {
+  applyScoreConstraints,
+  computeMetrics,
+  isTranscriptUsable,
+} from "@/lib/scoring";
 import { recordCompletedSession } from "@/lib/sessions";
 import { toDayKey } from "@/lib/streaks";
 import { FirebaseConfigError } from "@/lib/firebase/admin";
@@ -128,6 +132,9 @@ export async function POST(request: Request) {
 
   const dayKey = toDayKey();
   const promptId = String(formData.get("promptId") ?? "");
+  // Claimed retry parent. Treated as a claim, not a fact: the transaction only
+  // honours it if the session exists and belongs to this user.
+  const retryOfSessionId = String(formData.get("retryOf") ?? "") || null;
 
   let prompt;
   try {
@@ -149,10 +156,13 @@ export async function POST(request: Request) {
         userId: user.uid,
         challengeDate: dayKey,
         scoringSource: "mock",
+        retryOfSessionId,
       });
       log("completion recorded", requestId, {
         streak: record.streakEarned,
         daily: record.isDailyCompletion,
+        attempt: record.attemptNumber,
+        xp: record.xpEarned,
       });
     } catch (caught) {
       return handleStorageError(caught, requestId);
@@ -207,19 +217,42 @@ export async function POST(request: Request) {
     const analysis = await analyzeTranscript({ prompt, transcript, metrics });
     timings.analysis = Date.now() - analysisStartedAt;
 
-    const scores = {
-      clarity: analysis.clarityScore,
-      structure: analysis.structureScore,
-      concision: analysis.concisionScore,
-      delivery: analysis.deliveryScore,
-    };
-    // ---- 5. Overall score, computed here and nowhere else --------------
-    const overallScore = computeOverallScore(scores);
+    // ---- 5. Deterministic constraints, then the overall score -----------
+    // The model proposes; the measurements dispose. Every ceiling applied here
+    // comes from something the model cannot argue with, and the overall score
+    // is computed from the constrained values and nowhere else.
+    const constrained = applyScoreConstraints(
+      {
+        clarity: analysis.clarityScore,
+        structure: analysis.structureScore,
+        concision: analysis.concisionScore,
+        delivery: analysis.deliveryScore,
+      },
+      metrics,
+    );
+
+    const scores = constrained.scores;
+    const overallScore = constrained.overallScore;
 
     log("analysis completed", requestId, {
       ms: timings.analysis,
       overall: overallScore,
+      raw: constrained.rawOverallScore,
+      tier: constrained.completeness.tier,
+      status: constrained.status,
+      caps: constrained.appliedCaps.length,
     });
+
+    // The penalty math, server-side only. This is the log to read when a score
+    // looks wrong; it deliberately carries no transcript text.
+    if (constrained.appliedCaps.length > 0) {
+      console.info(
+        `[analyze:${requestId}] caps ` +
+          constrained.appliedCaps
+            .map((cap) => `${cap.dimension} ${cap.from}->${cap.cap} (${cap.reason})`)
+            .join(" | "),
+      );
+    }
 
     const session: Session = {
       id: crypto.randomUUID(),
@@ -251,6 +284,8 @@ export async function POST(request: Request) {
       streak: 0,
       dayNumber: 0,
       scoringSource: "llm",
+      scoringVersion: constrained.scoringVersion,
+      scoringStatus: constrained.status,
     };
 
     // ---- 6. Persist and advance the streak, atomically -------------------
@@ -263,12 +298,18 @@ export async function POST(request: Request) {
       challengeDate: dayKey,
       scoringSource: "llm",
       modelVersion: ANALYSIS_MODEL,
+      retryOfSessionId,
+      scoring: constrained,
     });
     log("session stored", requestId, {
       session: session.id,
       streak: record.streakEarned,
       day: record.dayNumber,
       daily: record.isDailyCompletion,
+      attempt: record.attemptNumber,
+      xp: record.xpEarned,
+      quests: record.questsCompleted.length,
+      best: record.isPersonalBest,
     });
 
     logTimings(requestId, mode, timings, Date.now() - requestStartedAt);

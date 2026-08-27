@@ -27,7 +27,7 @@ export interface Scores {
 
 /**
  * Measured, not judged. Every field is computed deterministically from the
- * transcript and its duration in `lib/scoring.ts`, so the same recording always
+ * transcript and its duration in `lib/scoring/metrics.ts`, so the same recording always
  * produces the same numbers. These are given to the LLM as evidence and shown
  * to the user as fact.
  *
@@ -49,6 +49,10 @@ export interface SpeechMetrics {
   repetitionRate?: number;
   /** Unique words over total words. */
   lexicalDiversity?: number;
+  sentenceCount?: number;
+  averageSentenceLength?: number;
+  /** Population variance of sentence lengths, in words. */
+  sentenceLengthVariance?: number;
 }
 
 export type ScoreKey = keyof Scores;
@@ -80,6 +84,15 @@ export interface Feedback {
  */
 export type ScoringSource = "llm" | "mock";
 
+/**
+ * Whether the response carried enough evidence to judge properly.
+ *
+ * `insufficient` means the recording was too short to evaluate — a score is
+ * still produced, but a heavily capped one, and the UI says so rather than
+ * presenting it as a normal result.
+ */
+export type ScoringStatus = "scored" | "insufficient";
+
 export interface Session {
   id: string;
   createdAt: string;
@@ -104,6 +117,44 @@ export interface Session {
   previousScore?: number;
   /** Absent on sessions written before provenance was recorded. */
   scoringSource?: string;
+  /**
+   * Which calibration produced these scores. Absent on pre-v2 sessions, which
+   * are treated as `"v1"` — see `SCORING_VERSION`. Scores are not comparable
+   * across versions, and history deliberately does not rewrite old ones.
+   */
+  scoringVersion?: string;
+  /** Absent on older sessions, which are all treated as `"scored"`. */
+  scoringStatus?: ScoringStatus;
+
+  /**
+   * The session this one retries, or null for a first attempt. Always the
+   * *root* attempt, so a chain of retries all point at the same original and
+   * "attempt 4" still compares against attempt 1.
+   */
+  retryOfSessionId?: string | null;
+  /** 1 for a first attempt, 2 for its first retry, and so on. */
+  attemptNumber?: number;
+  /** Gamification outcome, frozen at write time. See `SessionGamification`. */
+  gamification?: SessionGamification;
+}
+
+/**
+ * What a completed session earned.
+ *
+ * Frozen onto the session document rather than recomputed on read: XP curves
+ * and quest definitions will change, and a results page from last month must
+ * keep showing what actually happened that day.
+ */
+export interface SessionGamification {
+  xpEarned: number;
+  /** Total XP after this session, for the level bar. */
+  totalXp: number;
+  level: number;
+  didLevelUp: boolean;
+  /** Ids of quests this session completed. */
+  questsCompleted: string[];
+  isPersonalBest: boolean;
+  streak: number;
 }
 
 export interface AnalyzeResponse {

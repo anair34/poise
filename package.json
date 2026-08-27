@@ -7,10 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "check": "npm run check:scoring && npm run check:streaks && npm run check:completion",
+    "check": "npm run check:scoring && npm run check:scoring:v2 && npm run check:streaks && npm run check:completion && npm run check:gamification",
     "check:scoring": "node --experimental-strip-types scripts/check-scoring.mjs",
+    "check:scoring:v2": "node --experimental-strip-types scripts/check-scoring-v2.mjs",
+    "audit:scoring": "node --experimental-strip-types scripts/audit-scoring.mjs",
     "check:streaks": "node --experimental-strip-types scripts/check-streaks.mjs",
     "check:completion": "node --experimental-strip-types scripts/check-completion.mjs",
+    "check:gamification": "node --experimental-strip-types scripts/check-gamification.mjs",
     "prompt:today": "node --experimental-strip-types scripts/generate-prompt.mjs"
   },
   "dependencies": {

@@ -1,17 +1,38 @@
 import "server-only";
 
-import { Timestamp } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getDb } from "./firebase/admin";
 import { dailyPromptId } from "./dailyPrompts";
-import { applyCompletion, isValidDayKey } from "./streaks";
+import { applyCompletion, applyRetry, isValidDayKey } from "./streaks";
 import {
   buildAggregateUpdate,
   toCompletionState,
   userDocRef,
+  xpEventRef,
   type CompletionRecord,
   type UserDoc,
 } from "./users";
-import type { Category, ScoringSource, Session } from "./types";
+import {
+  buildQuestUpdate,
+  dailyQuestRef,
+  eligibilityFor,
+  type DailyQuestDoc,
+} from "./gamification/dailyQuests";
+import {
+  assignDailyQuestIds,
+  questsCompletedBy,
+  type QuestSessionFacts,
+} from "./gamification/quests";
+import { buildXpEvents, sumXp } from "./gamification/xp";
+import { didLevelUp, getLevelFromXp } from "./gamification/levels";
+import type { ConstrainedScoring } from "./scoring/constraints.ts";
+import type {
+  Category,
+  Scores,
+  ScoringSource,
+  ScoringStatus,
+  Session,
+} from "./types";
 
 export const SESSIONS_COLLECTION = "practiceSessions";
 
@@ -86,8 +107,42 @@ export interface SessionDoc {
   // silently makes every historical score incomparable.
   scoringSource: ScoringSource;
   modelVersion: string | null;
+  /**
+   * Which calibration produced these scores. Absent on sessions written before
+   * scoring v2, which are read back as `"v1"`. Old sessions are never rescored.
+   */
+  scoringVersion: string | null;
+  scoringStatus: ScoringStatus | null;
+  /**
+   * Debugging metadata: what the model returned before deterministic ceilings,
+   * and which ceilings actually bound a score. Server-side only — no UI reads
+   * these, but without them a surprising score cannot be explained after the
+   * fact.
+   */
+  rawScores: Scores | null;
+  rawOverallScore: number | null;
+  completenessTier: string | null;
+  appliedCaps: string[] | null;
 
   dayNumber: number;
+
+  /**
+   * Retry lineage. `retryOfSessionId` always points at the *root* attempt, so
+   * attempt 4 still compares against attempt 1 rather than walking a chain.
+   * Null on a first attempt.
+   */
+  retryOfSessionId: string | null;
+  attemptNumber: number;
+
+  // Gamification outcome, frozen at write time. Recomputing these on read would
+  // let a later change to the XP curve or the quest registry silently rewrite
+  // what a past session earned.
+  xpEarned: number;
+  totalXpAfter: number;
+  levelAfter: number;
+  didLevelUp: boolean;
+  questsCompleted: string[];
+  isPersonalBest: boolean;
 }
 
 /**
@@ -108,6 +163,18 @@ export interface CreateSessionInput {
   streakEarned: number;
   scoringSource?: ScoringSource;
   modelVersion?: string;
+  /** Full constraint result, for the debugging fields on the document. */
+  scoring?: ConstrainedScoring;
+  retryOfSessionId?: string | null;
+  attemptNumber?: number;
+  gamification?: {
+    xpEarned: number;
+    totalXpAfter: number;
+    levelAfter: number;
+    didLevelUp: boolean;
+    questsCompleted: string[];
+    isPersonalBest: boolean;
+  };
 }
 
 function toDoc({
@@ -118,6 +185,10 @@ function toDoc({
   streakEarned,
   scoringSource = "llm",
   modelVersion,
+  scoring,
+  retryOfSessionId = null,
+  attemptNumber = 1,
+  gamification,
 }: CreateSessionInput): SessionDoc {
   return {
     id: session.id,
@@ -160,8 +231,27 @@ function toDoc({
 
     scoringSource,
     modelVersion: modelVersion ?? null,
+    scoringVersion: scoring?.scoringVersion ?? session.scoringVersion ?? null,
+    scoringStatus: scoring?.status ?? session.scoringStatus ?? null,
+    rawScores: scoring?.rawScores ?? null,
+    rawOverallScore: scoring?.rawOverallScore ?? null,
+    completenessTier: scoring?.completeness.tier ?? null,
+    appliedCaps:
+      scoring?.appliedCaps.map(
+        (cap) => `${cap.dimension}:${cap.from}->${cap.cap} ${cap.reason}`,
+      ) ?? null,
 
     dayNumber: session.dayNumber,
+
+    retryOfSessionId,
+    attemptNumber,
+
+    xpEarned: gamification?.xpEarned ?? 0,
+    totalXpAfter: gamification?.totalXpAfter ?? 0,
+    levelAfter: gamification?.levelAfter ?? 1,
+    didLevelUp: gamification?.didLevelUp ?? false,
+    questsCompleted: gamification?.questsCompleted ?? [],
+    isPersonalBest: gamification?.isPersonalBest ?? false,
   };
 }
 
@@ -216,6 +306,23 @@ function fromDoc(doc: LegacySessionDoc): Session {
     streak: doc.streakEarned ?? doc.streak ?? 0,
     dayNumber: doc.dayNumber,
     scoringSource: doc.scoringSource ?? undefined,
+    // Sessions written before scoring v2 carry no version. They are reported as
+    // "v1" rather than rescored: their numbers meant something at the time, and
+    // rewriting history would move scores a user has already seen.
+    scoringVersion: doc.scoringVersion ?? "v1",
+    scoringStatus: doc.scoringStatus ?? "scored",
+
+    retryOfSessionId: doc.retryOfSessionId ?? null,
+    attemptNumber: doc.attemptNumber ?? 1,
+    gamification: {
+      xpEarned: doc.xpEarned ?? 0,
+      totalXp: doc.totalXpAfter ?? 0,
+      level: doc.levelAfter ?? 1,
+      didLevelUp: doc.didLevelUp ?? false,
+      questsCompleted: doc.questsCompleted ?? [],
+      isPersonalBest: doc.isPersonalBest ?? false,
+      streak: doc.streakEarned ?? doc.streak ?? 0,
+    },
   };
 }
 
@@ -239,31 +346,150 @@ function collection() {
  * same-day retry.
  */
 export async function recordCompletedSession(
-  input: Omit<CreateSessionInput, "isDailyCompletion" | "streakEarned">,
+  input: Omit<CreateSessionInput, "isDailyCompletion" | "streakEarned"> & {
+    /** Client-supplied id of the attempt being retried. Verified below. */
+    retryOfSessionId?: string | null;
+  },
 ): Promise<CompletionRecord> {
   const db = getDb();
   const sessionRef = collection().doc(input.session.id);
   const userRef = userDocRef(input.userId);
+  const questRef = dailyQuestRef(input.userId, input.challengeDate);
+
+  // The parent is read inside the transaction so its ownership is checked
+  // against fresh data. A client can name any session id; only one it actually
+  // owns is allowed to become a retry parent.
+  const parentRef = input.retryOfSessionId
+    ? collection().doc(input.retryOfSessionId)
+    : null;
 
   return db.runTransaction(async (transaction) => {
-    // Every read must precede every write inside a Firestore transaction.
-    const userSnapshot = await transaction.get(userRef);
+    // ---- reads. Every read must precede every write in a transaction. ----
+    const [userSnapshot, questSnapshot] = await Promise.all([
+      transaction.get(userRef),
+      transaction.get(questRef),
+    ]);
+    const parentSnapshot = parentRef ? await transaction.get(parentRef) : null;
+
     const userData = userSnapshot.exists
       ? (userSnapshot.data() as Partial<UserDoc>)
       : undefined;
+    const questData = questSnapshot.exists
+      ? (questSnapshot.data() as Partial<DailyQuestDoc>)
+      : undefined;
 
-    const completion = applyCompletion(
-      toCompletionState(userData),
-      input.challengeDate,
-    );
+    // A parent that is missing, or belongs to someone else, is silently
+    // demoted to "not a retry" rather than trusted or thrown at: the recording
+    // is real and the user should still get their session.
+    const parentDoc =
+      parentSnapshot?.exists &&
+      (parentSnapshot.data() as SessionDoc).userId === input.userId
+        ? (parentSnapshot.data() as SessionDoc)
+        : null;
+
+    const isRetry = Boolean(parentDoc);
+    // Point at the root attempt, so a chain of retries all compare to attempt 1.
+    const rootId = parentDoc
+      ? (parentDoc.retryOfSessionId ?? parentDoc.id)
+      : null;
+    const attemptNumber = parentDoc ? (parentDoc.attemptNumber ?? 1) + 1 : 1;
+
+    const state = toCompletionState(userData);
+    // A retry is a session but never a completion: it cannot move the streak
+    // or add a practice day.
+    const completion = isRetry
+      ? applyRetry(state)
+      : applyCompletion(state, input.challengeDate);
+
     const previousScore = userData?.lastOverallScore ?? null;
+    const overallScore = input.session.overallScore;
 
+    // ---- personal best ----------------------------------------------------
+    // Only meaningful once there is something to beat, so a first ever session
+    // sets the bar rather than being celebrated as a record.
+    const bestBefore = userData?.bestOverallScore ?? null;
+    const hadPriorSession = state.totalSessions > 0;
+    const isPersonalBest =
+      hadPriorSession && overallScore > (bestBefore ?? Number.NEGATIVE_INFINITY);
+
+    // ---- quests -----------------------------------------------------------
+    const questIds =
+      questData?.questIds && questData.questIds.length > 0
+        ? questData.questIds
+        : assignDailyQuestIds(
+            input.userId,
+            input.challengeDate,
+            eligibilityFor(userData, input.challengeDate),
+          );
+
+    const scoreToBeat = parentDoc?.overallScore ?? null;
+    const facts: QuestSessionFacts = {
+      overallScore,
+      clarity: input.session.scores.clarity,
+      structure: input.session.scores.structure,
+      concision: input.session.scores.concision,
+      delivery: input.session.scores.delivery,
+      wordsPerMinute: input.session.metrics.wordsPerMinute,
+      fillerWordCount: input.session.metrics.fillerWordCount,
+      isDailyCompletion: completion.isDailyCompletion,
+      isRetry,
+      scoreToBeat,
+      fillersToBeat: parentDoc?.fillerWordCount ?? null,
+      isPersonalBest,
+    };
+
+    const newlyCompleted = questsCompletedBy(
+      questIds,
+      questData?.completed ?? [],
+      facts,
+    );
+
+    // ---- XP ---------------------------------------------------------------
+    const candidates = buildXpEvents({
+      dayKey: input.challengeDate,
+      sessionId: input.session.id,
+      isDailyCompletion: completion.isDailyCompletion,
+      isRetry,
+      retryImproved: isRetry && scoreToBeat !== null && overallScore > scoreToBeat,
+      isPersonalBest,
+      questsCompleted: newlyCompleted,
+    });
+
+    // Idempotency: an event id that already exists has already been paid for.
+    // This is what makes a double-submit or a retried request safe, and the
+    // transaction is what makes it safe under concurrency.
+    const eventRefs = candidates.map((event) =>
+      xpEventRef(input.userId, event.id),
+    );
+    const existingEvents =
+      eventRefs.length > 0 ? await transaction.getAll(...eventRefs) : [];
+    const pending = candidates
+      .map((event, index) => ({ event, ref: eventRefs[index] }))
+      .filter((_, index) => !existingEvents[index]?.exists);
+    const awarded = pending.map((entry) => entry.event);
+
+    const xpEarned = sumXp(awarded);
+    const totalXpBefore = userData?.totalXp ?? 0;
+    const totalXpAfter = totalXpBefore + xpEarned;
+    const leveledUp = didLevelUp(totalXpBefore, xpEarned);
+
+    // ---- writes -----------------------------------------------------------
     transaction.set(
       sessionRef,
       toDoc({
         ...input,
         isDailyCompletion: completion.isDailyCompletion,
         streakEarned: completion.streakEarned,
+        retryOfSessionId: rootId,
+        attemptNumber,
+        gamification: {
+          xpEarned,
+          totalXpAfter,
+          levelAfter: getLevelFromXp(totalXpAfter),
+          didLevelUp: leveledUp,
+          questsCompleted: newlyCompleted.map((quest) => quest.id),
+          isPersonalBest,
+        },
         session: {
           ...input.session,
           streak: completion.streakEarned,
@@ -273,18 +499,42 @@ export async function recordCompletedSession(
       }),
     );
 
+    const aggregate = buildAggregateUpdate({
+      uid: input.userId,
+      completion,
+      challengeDate: input.challengeDate,
+      existing: userData,
+      isNewDocument: !userSnapshot.exists,
+      overallScore,
+    });
+    if (xpEarned > 0) aggregate.totalXp = FieldValue.increment(xpEarned);
+    if (isPersonalBest || bestBefore === null) {
+      aggregate.bestOverallScore = Math.max(bestBefore ?? 0, overallScore);
+    }
+    transaction.set(userRef, aggregate, { merge: true });
+
     transaction.set(
-      userRef,
-      buildAggregateUpdate({
-        uid: input.userId,
-        completion,
-        challengeDate: input.challengeDate,
-        existing: userData,
-        isNewDocument: !userSnapshot.exists,
-        overallScore: input.session.overallScore,
+      questRef,
+      buildQuestUpdate({
+        dayKey: input.challengeDate,
+        questIds,
+        newlyCompleted,
+        sessionId: input.session.id,
+        isNewDocument: !questSnapshot.exists,
       }),
       { merge: true },
     );
+
+    for (const { event, ref } of pending) {
+      transaction.set(ref, {
+        type: event.type,
+        amount: event.amount,
+        questId: event.questId ?? null,
+        sessionId: input.session.id,
+        dayKey: input.challengeDate,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
 
     return {
       sessionId: input.session.id,
@@ -293,6 +543,14 @@ export async function recordCompletedSession(
       dayNumber: completion.next.daysPracticed,
       longestStreak: completion.next.longestStreak,
       previousScore: previousScore ?? undefined,
+      isRetry,
+      attemptNumber,
+      xpEarned,
+      totalXp: totalXpAfter,
+      level: getLevelFromXp(totalXpAfter),
+      didLevelUp: leveledUp,
+      questsCompleted: newlyCompleted.map((quest) => quest.id),
+      isPersonalBest,
     };
   });
 }

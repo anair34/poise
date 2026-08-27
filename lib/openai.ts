@@ -5,6 +5,8 @@ import { zodResponseFormat } from "openai/helpers/zod";
 import { z } from "zod";
 import { CATEGORIES } from "./types";
 import type { Category, Prompt, SpeechMetrics } from "./types";
+import { SCORE_BANDS } from "./scoring/config.ts";
+import { assessCompleteness } from "./scoring/completeness.ts";
 
 export const TRANSCRIPTION_MODEL =
   process.env.OPENAI_TRANSCRIPTION_MODEL ?? "gpt-4o-mini-transcribe";
@@ -95,7 +97,8 @@ const CoachingNoteSchema = z.object({
  * The scoring and coaching contract.
  *
  * There is deliberately no overall score field. The model rates the four
- * dimensions; the weighted overall is computed in `lib/scoring.ts`, so it is
+ * dimensions; the weighted overall is computed in `lib/scoring/constraints.ts`
+ * from the constrained values, so it is
  * reproducible and every change in it traces back to a dimension.
  */
 const AnalysisSchema = z.object({
@@ -132,7 +135,18 @@ You have the transcript, the duration, and deterministic metrics. That is all. Y
 
 Do not produce an overall score. The app computes it.
 
-Calibration: 50 is an average first attempt, 70 is solid, 85+ is genuinely strong. Be honest but never harsh.
+SCORE BANDS — use these anchors, and use the whole scale:
+${SCORE_BANDS.map((band) => `- ${band.range}: ${band.meaning}`).join("\n")}
+
+Most responses are NOT in the 70s. Do not cluster scores around 70. If a response has real problems, score it in the 40s or 50s. If it is genuinely excellent, score it in the 90s. A spread of scores across the four dimensions is normal and expected — identical scores on all four usually means you have not looked closely enough.
+
+COMPLETENESS — the exercise is 60 seconds. A response far shorter than that has not done the exercise:
+- A fragment of 10-15 seconds cannot have structure. Score structure in the 20s or 30s, not the 70s.
+- Being short is NOT the same as being concise. Concision means saying what was needed efficiently. An answer that stopped early is INCOMPLETE, not concise — do not reward it with a high concision score.
+- A complete, well-made argument delivered efficiently in 35-40 seconds IS concise, and should score well. Judge whether the point was finished, not whether the clock ran out.
+- Severe incompleteness should hold clarity down too, but an answer that is short and perfectly understandable still deserves reasonable clarity. Do not punish brevity twice.
+
+The app applies its own deterministic limits on top of your scores based on duration, pace, filler rate, and repetition. Score what you actually see; do not try to guess or pre-apply those limits.
 
 Rules:
 - Every observation must point to something in the transcript or the metrics. Quote or paraphrase the specific moment, or cite the specific number.
@@ -163,14 +177,23 @@ export async function analyzeTranscript({
   const percent = (value: number | undefined) =>
     typeof value === "number" ? `${(value * 100).toFixed(0)}%` : "n/a";
 
+  const completeness = assessCompleteness({
+    durationSeconds: metrics.durationSeconds,
+    wordCount: metrics.wordCount,
+    wordsPerMinute: metrics.wordsPerMinute,
+  });
+
   const userContent = [
     `SPEAKING PROMPT: ${prompt.text}`,
     `CATEGORY: ${prompt.category}`,
     "",
     "OBJECTIVE METRICS (measured by the app, treat as ground truth):",
-    `- Duration: ${metrics.durationSeconds}s of a 60s maximum`,
+    `- Duration: ${metrics.durationSeconds}s of the 60s exercise`,
+    `- Completeness: ${completeness.label}${
+      completeness.adjustment ? ` — ${completeness.adjustment}` : ""
+    }`,
     `- Word count: ${metrics.wordCount}`,
-    `- Pace: ${metrics.wordsPerMinute} words per minute (conversational is roughly 130-160)`,
+    `- Pace: ${metrics.wordsPerMinute} words per minute (comfortable is roughly 110-170)`,
     `- Filler words: ${metrics.fillerWordCount}${
       metrics.fillerWords.length
         ? ` (${metrics.fillerWords
@@ -184,6 +207,9 @@ export async function analyzeTranscript({
     )} per 100 words (e.g. maybe, I think, sort of)`,
     `- Repeated phrasing: ${percent(metrics.repetitionRate)} of three-word sequences repeat`,
     `- Lexical diversity: ${percent(metrics.lexicalDiversity)} unique words`,
+    `- Sentences: ${metrics.sentenceCount ?? "n/a"}, averaging ${rate(
+      metrics.averageSentenceLength,
+    )} words (length variance ${rate(metrics.sentenceLengthVariance)})`,
     "",
     "TRANSCRIPT:",
     transcript,

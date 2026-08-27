@@ -1,4 +1,4 @@
-import { computeMetrics, computeOverallScore } from "./scoring";
+import { applyScoreConstraints, computeMetrics } from "./scoring";
 import type { Prompt, ScoreNotes, Session } from "./types";
 
 const MOCK_TRANSCRIPT =
@@ -17,27 +17,46 @@ function noteFor(score: number, strong: string, weak: string): string {
  * so every section of the results page has realistic content to render before
  * Whisper and GPT are wired up.
  */
+/**
+ * Trims the fixed transcript to what someone would actually say in the time.
+ *
+ * Without this, a 6-second recording produced the full 109-word transcript at
+ * an impossible 1090 wpm, and mock mode became useless for checking exactly the
+ * short-response behaviour this scoring version exists to get right.
+ */
+function transcriptFor(durationSeconds: number): string {
+  const words = MOCK_TRANSCRIPT.split(/\s+/);
+  const spoken = Math.max(1, Math.round((durationSeconds / 60) * 145));
+  if (spoken >= words.length) return MOCK_TRANSCRIPT;
+  return `${words.slice(0, spoken).join(" ")}.`;
+}
+
 export function buildMockSession(
   id: string,
   prompt: Prompt,
   durationSeconds: number,
 ): Session {
-  const metrics = computeMetrics(MOCK_TRANSCRIPT, durationSeconds);
+  const transcript = transcriptFor(durationSeconds);
+  const metrics = computeMetrics(transcript, durationSeconds);
   const wordsPerMinute = metrics.wordsPerMinute;
 
   // Reward using more of the minute; penalize rushing.
   const usage = Math.min(durationSeconds / 55, 1);
   const pacePenalty = Math.abs(wordsPerMinute - 145) / 6;
 
-  const scores = {
+  // Stands in for what the model would return, before constraints.
+  const rawScores = {
     clarity: clamp(72 + usage * 14 - pacePenalty * 0.6),
     structure: clamp(66 + usage * 20),
     concision: clamp(88 - pacePenalty),
     delivery: clamp(70 + usage * 16 - pacePenalty * 0.4),
   };
 
-  // The same weighting the real path uses, so mock sessions are comparable.
-  const overallScore = computeOverallScore(scores);
+  // Mock mode runs the real constraint pipeline, so a short mock recording is
+  // penalised exactly as a short real one would be.
+  const constrained = applyScoreConstraints(rawScores, metrics);
+  const scores = constrained.scores;
+  const overallScore = constrained.overallScore;
 
   const scoreNotes: ScoreNotes = {
     clarity: noteFor(
@@ -71,7 +90,7 @@ export function buildMockSession(
     promptId: prompt.id,
     promptText: prompt.text,
     category: prompt.category,
-    transcript: MOCK_TRANSCRIPT,
+    transcript,
     overallScore,
     scores,
     scoreNotes,
@@ -100,5 +119,7 @@ export function buildMockSession(
     streak: 0,
     dayNumber: 1,
     scoringSource: "mock",
+    scoringVersion: constrained.scoringVersion,
+    scoringStatus: constrained.status,
   };
 }

@@ -3,17 +3,16 @@
  * Run with: node --experimental-strip-types scripts/check-scoring.mjs
  */
 import {
-  clampScore,
   computeLexicalDiversity,
   computeMetrics,
-  computeOverallScore,
   computeRepetitionRate,
   computeWordsPerMinute,
   countFillers,
   countHedges,
   countWords,
   isTranscriptUsable,
-} from "../lib/scoring.ts";
+} from "../lib/scoring/metrics.ts";
+import { clampScore, computeOverallScore } from "../lib/scoring/constraints.ts";
 
 let failures = 0;
 
