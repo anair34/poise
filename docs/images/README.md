@@ -1,43 +1,33 @@
 # Screenshots
 
-Screenshots referenced by the root `README.md`. Add PNGs here using exactly these
-filenames, then swap them into the README where marked.
+Screenshots referenced by the root `README.md`.
 
-The Demo section near the top of the README holds a hero image and two
-three-column grids. Two further screenshots sit inline in the walkthrough,
-because they carry more detail than a grid cell can show.
+| File | Screen | Used in |
+| --- | --- | --- |
+| `landing.png` | `/` | Demo hero |
+| `signin.png` | `/signin` | Demo grid 1 |
+| `signup.png` | `/signup` | Demo grid 1 |
+| `practice.png` | `/practice` | Demo grid 1 |
+| `recording.png` | `/practice`, mid-recording | Demo grid 2 |
+| `quests.png` | `/conversations`, quest card | Demo grid 2 |
+| `progress.png` | `/conversations` | Demo grid 2 |
+| `results.png` | `/results/[id]` | Walkthrough, step 4 |
+| `beat-your-score.png` | `/results/[id]` on a retry | Walkthrough, step 6 |
+| `calendar.png` | `/conversations`, calendar card | Walkthrough, step 7 |
 
-| File | Screen | Used in | Notes |
-| --- | --- | --- | --- |
-| `results.png` | `/results/[id]` | Demo hero | Score hero through the coaching block. Worth a tall capture. |
-| `landing.png` | `/` | Demo grid 1 | Hero and the entry point into today's challenge. |
-| `signin.png` | `/signin` | Demo grid 1 | Email and password form with the Google button. |
-| `practice.png` | `/practice` | Demo grid 1 | The prompt and the recorder at rest. |
-| `recording.png` | `/practice` | Demo grid 2 | Mid-recording, with the live waveform moving. |
-| `quests.png` | `/conversations` | Demo grid 2 | The two daily quests, ideally with one complete. |
-| `progress.png` | `/conversations` | Demo grid 2 | Dashboard summary: streak, level, quests, challenge state. |
-| `beat-your-score.png` | `/results/[id]` | Inline, step 6 | The retry CTA, or the comparison table on a completed retry. |
-| `calendar.png` | `/conversations` | Inline, step 7 | The practice calendar with a day selected. |
-| `google-signin.png` | Google OAuth popup | Unused | Optional. Add a cell for it only if it shows more than `signin.png`. |
+## Recapturing
 
-In the Demo grids, replace a placeholder cell like this:
+The authenticated screens need a signed-in user with practice history. These
+were captured against the Firebase emulators rather than a live project, so the
+account is local and disposable:
 
-```html
-<td align="center"><code>docs/images/landing.png</code></td>
+```bash
+firebase emulators:start --only firestore,auth
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
+FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 \
+POISE_SCORING_MODE=mock npm run dev
 ```
 
-with the image:
-
-```html
-<td><img src="docs/images/landing.png" alt="Poise landing page"></td>
-```
-
-Capture guidance:
-
-- Use a viewport around 1440px wide for desktop shots, then crop to the content.
-  Full-height browser captures make the README hard to scan.
-- Sign in with an account that has a few days of history. Empty states
-  photograph badly and undersell the product.
-- `POISE_SCORING_MODE=mock` produces a complete results page without spending
-  OpenAI credits, which is usually the easiest way to capture `results.png`.
-- Avoid capturing a real email address in the account menu.
+Then seed a user with a streak, XP, and a retry pair, sign in to get a session
+cookie, and drive a headless browser over the routes above. Captures were taken
+at 1440 wide with a device scale factor of 2.

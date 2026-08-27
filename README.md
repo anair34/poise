@@ -34,13 +34,9 @@ a habit-forming learning experience.
 <tr>
 <td><img src="docs/images/signin.png" alt="Poise sign-in card with a Continue with Google button above email and password fields"></td>
 <td><img src="docs/images/signup.png" alt="Poise account creation card with optional name, email, password, and confirm password fields"></td>
-<td align="center"><code>docs/images/practice.png</code></td>
+<td><img src="docs/images/practice.png" alt="Poise practice screen showing today's challenge beside the recorder at rest"></td>
 </tr>
 </table>
-
-<!-- Remaining cells are placeholders. Replace each one with an image tag, for example:
-     <td><img src="docs/images/practice.png" alt="Poise practice screen"></td>
--->
 
 <table>
 <tr>
@@ -49,9 +45,9 @@ a habit-forming learning experience.
 <th width="33%">Progress</th>
 </tr>
 <tr>
-<td align="center"><code>docs/images/recording.png</code></td>
-<td align="center"><code>docs/images/quests.png</code></td>
-<td align="center"><code>docs/images/progress.png</code></td>
+<td><img src="docs/images/recording.png" alt="Poise recorder mid-recording, with a live waveform and a counting timer"></td>
+<td><img src="docs/images/quests.png" alt="Today's quests, one standard and one stretch, with the standard quest complete"></td>
+<td><img src="docs/images/progress.png" alt="Poise dashboard showing streak, level, today's challenge state, quests, and the practice calendar"></td>
 </tr>
 </table>
 
@@ -156,11 +152,7 @@ attempt?** The primary improvement gets the most visual weight on the page, and
 praise sits below it. Praise is what makes someone feel good about the session
 they just finished. The improvement is what makes the next one better.
 
-<!-- SCREENSHOT: add docs/images/results.png (worth a tall, full-width capture), then replace this comment with:
 ![Poise results page showing the overall score, the primary coaching opportunity, the four dimension scores, and deterministic speech metrics](docs/images/results.png)
--->
-
-*Screenshot placeholder: `docs/images/results.png`*
 
 ### 5. Complete quests
 
@@ -196,11 +188,7 @@ overall score, each dimension, filler counts, and repetition. They are not just
 told what to improve. They immediately try to apply it, and then find out
 whether it worked.
 
-<!-- SCREENSHOT: add docs/images/beat-your-score.png (large capture, this is a key screen), then replace with:
 ![Poise Beat Your Score panel showing the score to beat and the coaching focus, alongside the before and after comparison of a completed retry](docs/images/beat-your-score.png)
--->
-
-*Screenshot placeholder: `docs/images/beat-your-score.png`*
 
 ### 7. Build momentum
 
@@ -209,11 +197,7 @@ together the current streak, longest streak, level and XP progress, today's
 quests, whether today's challenge is done, and a practice calendar. Selecting a
 day shows the sessions recorded that day and links through to those results.
 
-<!-- SCREENSHOT: add docs/images/calendar.png, then replace this comment with:
-![Poise practice calendar for a month, with practiced days filled and one day selected to show its sessions](docs/images/calendar.png)
--->
-
-*Screenshot placeholder: `docs/images/calendar.png`*
+![Poise practice calendar for a month, with practiced days filled by score and today selected](docs/images/calendar.png)
 
 The longer loop:
 
