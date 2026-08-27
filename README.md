@@ -101,14 +101,69 @@ are `serverTimestamp()`, never a client or process clock.
 | `uid`, `email`, `displayName`, `photoURL` | every sign-in |
 | `createdAt` | once, at creation |
 | `lastSeenAt`, `updatedAt` | every sign-in |
-| `currentStreak`, `longestStreak`, `daysPracticed` | each recorded session |
-| `firstPracticeDate` | once, at first recorded session |
-| `lastPracticeDate`, `lastPracticeDay`, `lastCompletedChallengeDate` | each recorded session |
-| `totalSessions`, `lastOverallScore` | each recorded session |
+| `currentStreak`, `longestStreak` | each completed session |
+| `firstPracticeDate` | once, at first completed session |
+| `lastPracticeDate`, `lastPracticeDay`, `lastCompletedChallengeDate` | each completed session |
+| `totalSessions`, `totalPracticeDays`, `lastOverallScore` | each completed session |
 
 Sign-in writes the profile fields only. Because every write merges and
 `createdAt` is absent from the sign-in payload, a returning user's gamification
 state cannot be reset by signing in.
+
+**`totalSessions` and `totalPracticeDays` are not the same number** and must
+never be conflated: three sessions in one day is `totalSessions: 3` and
+`totalPracticeDays: 1`. Conflating them makes an enthusiastic user look like a
+long-running one, which is the one number a streak product has to get right.
+
+## Daily completion
+
+A challenge counts as completed only when an authenticated user submits a valid
+recording, transcription succeeds, scoring succeeds, **and** the session persists.
+Starting or recording counts for nothing.
+
+Each `practiceSessions/{id}` records how it landed:
+
+| Field | Meaning |
+| --- | --- |
+| `userId` | owner, always from the verified session cookie |
+| `challengeDate` | the UTC day this counted toward |
+| `challengeId` | which challenge slot it filled, `daily-{challengeDate}` |
+| `promptId` | the prompt actually answered — differs on a retry of an older prompt |
+| `isDailyCompletion` | true only for the first successful session that date |
+| `streakEarned` | the streak this session earned, frozen at write time |
+
+`streakEarned` is stored rather than derived so an old results page keeps showing
+the streak the user actually had that day. Deriving it later would let a missed
+day silently rewrite history.
+
+`lib/streaks.ts` holds the whole rule set as `applyCompletion`, a pure function,
+so every case is verifiable without Firestore — see `npm run check:completion`.
+
+### One transaction
+
+The session write and the aggregate update happen in a single Firestore
+transaction. They used to be sequential, which had a real failure mode: a streak
+could advance for a session that then failed to save, leaving a user with a
+streak and nothing behind it.
+
+The transaction is also what makes concurrent submissions safe. Two requests
+landing together would otherwise both read the same starting streak and write
+back the same value, losing a day and making the outcome depend on timing.
+Firestore aborts the loser and retries it against the winner's write, so the
+second submission is correctly classified as a same-day retry.
+
+### Query helpers
+
+All Firestore access lives in `lib/`. No UI component issues a query.
+
+```
+getUserSessions(uid, max)                        newest first
+getRecentUserSessions(uid, limit)                the progress page
+getUserSessionsForDateRange(uid, start, end)     inclusive, by challengeDate
+hasCompletedChallengeOnDate(uid, dateKey)        existence only, limit(1)
+getUserGamification(uid)                         one document read
+getSessionForUser(id, uid)                       owner-scoped, null if not yours
+```
 
 ### What a "day" is
 
@@ -160,9 +215,16 @@ the Admin SDK, which bypasses rules entirely, so granting write access would onl
 open a path for a browser to forge a score or inflate a streak. Reads are
 owner-scoped.
 
-`firestore.indexes.json` holds the composite indexes for the `userId` +
-`createdAt` history queries, which Firestore cannot serve from automatic
-single-field indexes.
+`firestore.indexes.json` holds two composite indexes, one per query shape that
+Firestore cannot serve from automatic single-field indexes:
+
+| Index | Serves |
+| --- | --- |
+| `userId` ASC + `createdAt` DESC | `getUserSessions`, `getRecentUserSessions` |
+| `userId` ASC + `challengeDate` ASC | `getUserSessionsForDateRange`, `hasCompletedChallengeOnDate` |
+
+Nothing else is indexed. An index that no query uses still costs a write on
+every session.
 
 ```bash
 npx firebase-tools deploy --only firestore:rules,firestore:indexes
@@ -221,10 +283,11 @@ FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_PROJECT_ID=poise-dev npm run dev
 ## Checks
 
 ```bash
-npm run check          # scoring + streak assertions
-npm run check:streaks  # day keys and streak arithmetic only
-npx tsc --noEmit       # typecheck
-npm run build          # production build
+npm run check             # scoring + streak + completion assertions
+npm run check:streaks     # day keys and streak arithmetic only
+npm run check:completion  # daily completion, retries, concurrency
+npx tsc --noEmit          # typecheck
+npm run build             # production build
 ```
 
 ## Layout

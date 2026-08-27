@@ -74,3 +74,8 @@ firestore-debug.log
 ui-debug.log
 *-debug.log
 .firebase/
+
+# Firebase CLI project alias. Holds the real project id, which is not a secret
+# but is kept local so the project name stays off the public repo. Recreate it
+# with: npx firebase-tools use --add
+.firebaserc
