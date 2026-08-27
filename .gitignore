@@ -30,12 +30,31 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files
+# Globs rather than an exact list, so a variant like .env.staging.local or a
+# stray .env.backup is caught too. .env.example is the only one we ever commit.
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
 !.env.example
+
+# credentials
+# Service account JSON from the Firebase console downloads under names like
+# poise-9125d-firebase-adminsdk-abc12.json. Ignore the shapes, not one filename.
+*-firebase-adminsdk-*.json
+serviceAccount*.json
+service-account*.json
+*credentials*.json
+gcp-key*.json
+*.p12
+*.pfx
+*.key
+!firestore.indexes.json
+
+# recordings and scratch audio, which may contain someone speaking
+*.webm
+*.m4a
+*.aiff
+*.wav
+!public/**/*.webm
 
 # vercel
 .vercel
@@ -48,3 +67,10 @@ yarn-error.log*
 .vscode/*
 !.vscode/extensions.json
 Thumbs.db
+
+# firebase emulator logs
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+*-debug.log
+.firebase/
