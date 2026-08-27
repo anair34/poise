@@ -22,7 +22,7 @@ export function RewriteCard({ rewrite }: { rewrite: string }) {
   }, [rewrite]);
 
   return (
-    <section className="rounded-xl border border-hairline bg-canvas px-6 py-6 sm:px-8 sm:py-7">
+    <section className="rounded-2xl border border-hairline bg-canvas px-6 py-6 sm:px-8 sm:py-7">
       <div className="flex items-center justify-between gap-4">
         <Eyebrow className="text-ink-muted">Try this instead</Eyebrow>
         <button
@@ -33,7 +33,7 @@ export function RewriteCard({ rewrite }: { rewrite: string }) {
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <p className="mt-5 max-w-2xl text-[1.15rem] leading-[1.7] tracking-[-0.01em] text-ink">
+      <p className="mt-5 max-w-4xl text-[1.15rem] leading-[1.7] tracking-[-0.01em] text-ink">
         {rewrite}
       </p>
       <p aria-live="polite" className="sr-only">

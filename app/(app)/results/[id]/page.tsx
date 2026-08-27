@@ -50,31 +50,41 @@ export default async function ResultsPage({
   const { feedback } = session;
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-5 py-7 sm:px-7 sm:py-9">
+    <main className="mx-auto w-full max-w-[100rem] px-5 py-6 sm:px-8 lg:px-10">
       <TopBar streak={session.streak} />
 
-      <div className="flex flex-col gap-14 py-14 sm:gap-16 sm:py-16">
+      <div className="flex flex-col gap-5 py-7">
         <ScoreHero session={session} />
 
-        <ScoreBreakdown rows={toScoreRows(session)} />
+        <SpeechMetrics metrics={session.metrics} />
 
-        {feedback?.opportunity ? (
-          <CoachingOpportunity note={feedback.opportunity} />
-        ) : null}
+        {/* Scores on the left, the coaching that explains them on the right. */}
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+          <section className="rounded-2xl border border-hairline bg-canvas px-6 py-5 sm:px-7">
+            <h2 className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-ink-muted">
+              How it scored
+            </h2>
+            <ScoreBreakdown rows={toScoreRows(session)} />
+          </section>
 
-        {feedback?.strength ? <StrengthCard note={feedback.strength} /> : null}
+          <div className="flex flex-col gap-5">
+            {feedback?.opportunity ? (
+              <CoachingOpportunity note={feedback.opportunity} />
+            ) : null}
+            {feedback?.strength ? (
+              <StrengthCard note={feedback.strength} />
+            ) : null}
+          </div>
+        </div>
 
         {feedback?.rewrite ? <RewriteCard rewrite={feedback.rewrite} /> : null}
 
-        <div className="flex flex-col gap-8">
-          <SpeechMetrics metrics={session.metrics} />
-          {session.transcript ? (
-            <TranscriptDisclosure
-              transcript={session.transcript}
-              prompt={session.promptText}
-            />
-          ) : null}
-        </div>
+        {session.transcript ? (
+          <TranscriptDisclosure
+            transcript={session.transcript}
+            prompt={session.promptText}
+          />
+        ) : null}
 
         <ResultActions
           promptId={session.promptId}

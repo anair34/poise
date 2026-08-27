@@ -4,7 +4,10 @@ export function ScoreBreakdown({ rows }: { rows: ScoreRow[] }) {
   return (
     <section aria-label="Score breakdown" className="divide-y divide-hairline">
       {rows.map((row) => (
-        <div key={row.key} className="grid grid-cols-[1fr_auto] gap-x-4 py-5">
+        <div
+          key={row.key}
+          className="grid grid-cols-[1fr_auto] gap-x-4 py-4 first:pt-3 last:pb-1"
+        >
           <p className="text-[0.95rem] font-medium tracking-tight text-ink">
             {row.label}
           </p>

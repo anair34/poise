@@ -12,9 +12,9 @@ export function ResultActions({
   const nextPrompt = getNextPrompt(promptId);
 
   return (
-    <section className="border-t border-hairline pt-8">
+    <section className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 rounded-2xl border border-hairline bg-canvas px-6 py-5 sm:px-8">
       {encouragement ? (
-        <p className="mb-7 max-w-xl text-[0.95rem] leading-[1.65] text-ink-soft">
+        <p className="max-w-xl text-[0.95rem] leading-[1.65] text-ink-soft">
           {encouragement}
         </p>
       ) : null}
@@ -23,8 +23,8 @@ export function ResultActions({
         <Button href={`/practice?prompt=${promptId}`}>
           Try again <ArrowGlyph />
         </Button>
-        <Button href="/progress" variant="ghost">
-          View progress
+        <Button href="/conversations" variant="ghost">
+          Your conversations
         </Button>
         <Link
           href={`/practice?prompt=${nextPrompt.id}`}

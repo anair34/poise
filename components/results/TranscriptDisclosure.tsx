@@ -7,7 +7,7 @@ export function TranscriptDisclosure({
   prompt: string;
 }) {
   return (
-    <details className="group border-b border-hairline pb-5">
+    <details className="group rounded-2xl border border-hairline bg-canvas px-6 py-4 sm:px-8">
       <summary className="flex cursor-pointer list-none items-center gap-2 py-1 text-[0.85rem] text-ink-soft transition-colors duration-200 hover:text-ink [&::-webkit-details-marker]:hidden">
         <span
           aria-hidden
@@ -19,7 +19,7 @@ export function TranscriptDisclosure({
         <span className="hidden group-open:inline">Hide transcript</span>
       </summary>
 
-      <div className="mt-5 max-w-2xl">
+      <div className="mb-3 mt-5 max-w-3xl">
         <p className="text-[0.8rem] italic text-ink-muted">{prompt}</p>
         <p className="mt-4 whitespace-pre-line text-[1rem] leading-[1.8] text-ink-soft">
           {transcript}
