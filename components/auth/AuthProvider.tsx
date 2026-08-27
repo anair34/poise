@@ -245,15 +245,25 @@ export function AuthProvider({
 
   const signOut = useCallback(async () => {
     setIsPending(true);
+    // Held for the whole sign-out. Clearing the cookie sets `user` to null,
+    // which is exactly the condition the repair effect watches for — without
+    // this it would see a still-signed-in SDK and mint a fresh cookie, undoing
+    // the sign-out.
+    isRepairing.current = true;
     try {
-      await fetch("/api/auth/session", { method: "DELETE" });
+      // Firebase first. The server route authenticates from the cookie, not
+      // from a token, so it still works afterwards — and if the network drops
+      // between the two steps, the browser is left signed out rather than
+      // holding a live SDK session with no cookie.
       if (isFirebaseClientConfigured()) {
         await firebaseSignOut(getClientAuth()).catch(() => {});
       }
+      await fetch("/api/auth/session", { method: "DELETE" }).catch(() => {});
       setUser(null);
       router.refresh();
       router.push("/");
     } finally {
+      isRepairing.current = false;
       setIsPending(false);
     }
   }, [router]);

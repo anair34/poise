@@ -30,6 +30,25 @@ const MESSAGES: Record<string, string> = {
   "auth/operation-not-allowed":
     "That sign-in method isn't enabled for this project yet.",
   "auth/requires-recent-login": "Please sign in again to continue.",
+
+  // Configuration faults. These are our mistakes, not the user's, so the copy
+  // says so plainly rather than implying they typed something wrong. Each one
+  // names a specific thing to fix in the Firebase console.
+  "auth/unauthorized-domain":
+    "Sign-in isn't allowed from this address yet. If you're the site owner, add this domain to Firebase Authentication → Settings → Authorized domains.",
+  "auth/invalid-api-key":
+    "Sign-in isn't configured correctly. Check the Firebase web API key.",
+  "auth/configuration-not-found":
+    "Sign-in isn't configured yet. Enable this provider in the Firebase console.",
+
+  // Environment faults, distinct from a network failure: retrying helps here
+  // only if the user changes something.
+  "auth/web-storage-unsupported":
+    "Your browser is blocking the storage sign-in needs. Try leaving private browsing or allowing cookies.",
+  "auth/popup-blocked-by-browser":
+    "Your browser blocked the sign-in window. Allow popups and try again.",
+  "auth/timeout": "That took too long. Please try again.",
+  "auth/internal-error": "Sign-in failed unexpectedly. Please try again.",
 };
 
 /** Codes that mean the user backed out, which should show no error at all. */
@@ -46,11 +65,23 @@ export function authErrorCode(caught: unknown): string {
   return "";
 }
 
+const GENERIC = "Something went wrong. Please try again.";
+
 /** Returns `CANCELLED` when the user dismissed the flow themselves. */
 export function authErrorMessage(caught: unknown): string {
   const code = authErrorCode(caught);
   if (SILENT.has(code)) return CANCELLED;
   if (MESSAGES[code]) return MESSAGES[code]!;
+
+  // An unmapped `code` means this came from Firebase, whose raw messages carry
+  // internals like "INVALID_LOGIN_CREDENTIALS". Log it so the gap is fixable,
+  // but never show it. Errors without a code are ours — thrown by the session
+  // exchange with copy already written for the user — so those pass through.
+  if (code) {
+    console.warn(`[auth] unmapped error code: ${code}`);
+    return GENERIC;
+  }
+
   if (caught instanceof Error && caught.message) return caught.message;
-  return "Something went wrong. Please try again.";
+  return GENERIC;
 }

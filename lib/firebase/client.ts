@@ -1,5 +1,11 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
-import { GoogleAuthProvider, getAuth, type Auth } from "firebase/auth";
+import {
+  GoogleAuthProvider,
+  browserLocalPersistence,
+  getAuth,
+  setPersistence,
+  type Auth,
+} from "firebase/auth";
 
 /**
  * Browser-side Firebase, used for one job only: proving who the user is.
@@ -16,8 +22,14 @@ const config = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
+/**
+ * Auth itself needs only these three. `appId` is sent when present — it
+ * identifies the specific web app to Firebase — but a missing one must not
+ * take sign-in down, so it is not part of this gate.
+ */
 export function isFirebaseClientConfigured(): boolean {
   return Boolean(config.apiKey && config.authDomain && config.projectId);
 }
@@ -37,19 +49,46 @@ function getClientApp(): FirebaseApp {
       apiKey: config.apiKey!,
       authDomain: config.authDomain!,
       projectId: config.projectId!,
+      ...(config.appId ? { appId: config.appId } : {}),
     },
     APP_NAME,
   );
 }
 
+let authInstance: Auth | undefined;
+
 export function getClientAuth(): Auth {
-  return getAuth(getClientApp());
+  if (authInstance) return authInstance;
+
+  const auth = getAuth(getClientApp());
+
+  // Survive a refresh and a closed tab. This is the SDK default, but stating it
+  // means a future change to that default cannot silently sign everyone out on
+  // reload. The promise is fire-and-forget: it resolves before any sign-in call
+  // that follows, and a failure (private mode, storage disabled) should degrade
+  // to an in-memory session rather than block sign-in entirely.
+  void setPersistence(auth, browserLocalPersistence).catch(() => {});
+
+  authInstance = auth;
+  return auth;
 }
 
+let provider: GoogleAuthProvider | undefined;
+
+/**
+ * One provider instance for the lifetime of the page.
+ *
+ * `signInWithPopup` reads the provider's parameters at call time, so a single
+ * configured instance behaves identically to a fresh one — and reusing it keeps
+ * the custom parameters in exactly one place.
+ */
 export function googleProvider(): GoogleAuthProvider {
-  const provider = new GoogleAuthProvider();
+  if (provider) return provider;
+
+  const created = new GoogleAuthProvider();
   // Always show the chooser. Without this, someone signed into several Google
   // accounts gets silently reattached to whichever one Google prefers.
-  provider.setCustomParameters({ prompt: "select_account" });
-  return provider;
+  created.setCustomParameters({ prompt: "select_account" });
+  provider = created;
+  return created;
 }

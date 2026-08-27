@@ -66,6 +66,50 @@ only check that a cookie *exists*. Verification happens in `getCurrentUser()`,
 and every protected page and route calls it. Session reads are owner-scoped in
 `lib/sessions.ts`, so a shared results link reveals nothing.
 
+The uid always comes from a verified credential. No route reads a user id from a
+body, query string, or header — `/api/analyze` derives it from the session cookie
+before it spends anything, and `/api/auth/session` takes an ID token rather than a
+uid, because a uid is a claim and a token is proof.
+
+### The session cookie
+
+| Property | Value | Why |
+| --- | --- | --- |
+| `httpOnly` | always | JavaScript cannot read it, so an XSS bug cannot exfiltrate a session |
+| `secure` | production, and any https request | no plaintext transmission where TLS exists |
+| `sameSite` | `lax` | survives a top-level return from the Google popup; not sent on cross-site POSTs |
+| `maxAge` | 14 days | Firebase's maximum for a session cookie |
+| `path` | `/` | one session for the whole app |
+
+Sign-out clears the client SDK first, then deletes the cookie and revokes the
+account's refresh tokens, so a copy of the cookie taken beforehand cannot be
+replayed. An expired or tampered cookie fails closed: `getCurrentUser()` returns
+null and the page redirects to `/signin`.
+
+The browser can outlive its cookie — the SDK's refresh token lasts far longer
+than fourteen days — so `AuthProvider` mints a fresh cookie when it finds a live
+Firebase session and no server session, rather than making the user sign in again
+for no visible reason.
+
+### `users/{uid}`
+
+Created on first sign-in and updated transactionally thereafter. All timestamps
+are `serverTimestamp()`, never a client or process clock.
+
+| Field | Written |
+| --- | --- |
+| `uid`, `email`, `displayName`, `photoURL` | every sign-in |
+| `createdAt` | once, at creation |
+| `lastSeenAt`, `updatedAt` | every sign-in |
+| `currentStreak`, `longestStreak`, `daysPracticed` | each recorded session |
+| `firstPracticeDate` | once, at first recorded session |
+| `lastPracticeDate`, `lastPracticeDay`, `lastCompletedChallengeDate` | each recorded session |
+| `totalSessions`, `lastOverallScore` | each recorded session |
+
+Sign-in writes the profile fields only. Because every write merges and
+`createdAt` is absent from the sign-in payload, a returning user's gamification
+state cannot be reset by signing in.
+
 ### What a "day" is
 
 One UTC calendar date, `YYYY-MM-DD`, in `lib/streaks.ts`. This is deliberately
@@ -144,6 +188,26 @@ npm install
 cp .env.example .env.local     # add your OpenAI key and Firebase credentials
 npm run dev
 ```
+
+### Firebase console setup
+
+Code alone won't sign anyone in. In the [Firebase console](https://console.firebase.google.com):
+
+1. **Authentication → Sign-in method** — enable **Google** and **Email/Password**.
+   A disabled provider surfaces as `auth/operation-not-allowed`, which reads like
+   a code bug but isn't one.
+2. **Authentication → Settings → Authorized domains** — add every host you sign in
+   from. `localhost` is there by default; your Vercel production and preview
+   domains are not. A missing domain surfaces as `auth/unauthorized-domain`.
+3. **Project settings → General → Your apps** — register a Web app and copy its
+   config into the `NEXT_PUBLIC_FIREBASE_*` variables.
+4. **Project settings → Service accounts → Generate new private key** — the
+   downloaded JSON supplies `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, and
+   `FIREBASE_PRIVATE_KEY`. Never commit it.
+5. Deploy the rules and indexes (see below), or every Firestore read fails.
+
+Google sign-in uses a popup rather than a redirect, deliberately: the recorder
+holds an unsaved recording in memory, and a full-page redirect would discard it.
 
 For UI work without API credit, set `POISE_SCORING_MODE=mock`.
 
