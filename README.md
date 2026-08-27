@@ -152,8 +152,6 @@ attempt?** The primary improvement gets the most visual weight on the page, and
 praise sits below it. Praise is what makes someone feel good about the session
 they just finished. The improvement is what makes the next one better.
 
-![Poise results page showing the overall score, the primary coaching opportunity, the four dimension scores, and deterministic speech metrics](docs/images/results.png)
-
 ### 5. Complete quests
 
 Each user gets two quests per day, one standard and one stretch. Quests turn
@@ -188,7 +186,7 @@ overall score, each dimension, filler counts, and repetition. They are not just
 told what to improve. They immediately try to apply it, and then find out
 whether it worked.
 
-![Poise Beat Your Score panel showing the score to beat and the coaching focus, alongside the before and after comparison of a completed retry](docs/images/beat-your-score.png)
+![Poise retry comparison showing before and after scores across clarity, structure, concision, delivery, and measured speech metrics](docs/images/beat-your-score.png)
 
 ### 7. Build momentum
 

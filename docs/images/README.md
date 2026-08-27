@@ -11,8 +11,7 @@ Screenshots referenced by the root `README.md`.
 | `recording.png` | `/practice`, mid-recording | Demo grid 2 |
 | `quests.png` | `/conversations`, quest card | Demo grid 2 |
 | `progress.png` | `/conversations` | Demo grid 2 |
-| `results.png` | `/results/[id]` | Walkthrough, step 4 |
-| `beat-your-score.png` | `/results/[id]` on a retry | Walkthrough, step 6 |
+| `beat-your-score.png` | `/results/[id]` retry comparison | Walkthrough, step 6 |
 | `calendar.png` | `/conversations`, calendar card | Walkthrough, step 7 |
 
 ## Recapturing
