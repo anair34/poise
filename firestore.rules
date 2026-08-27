@@ -1,0 +1,55 @@
+rules_version = '2';
+
+// Poise access rules.
+//
+// Every write in this app goes through the Firebase Admin SDK in server code
+// (`lib/sessions.ts`, `lib/users.ts`, `lib/dailyPrompts.ts`). The Admin SDK
+// bypasses these rules entirely, so nothing here needs to grant write access —
+// and granting it would only open a path for a browser to forge scores or
+// inflate its own streak.
+//
+// Reads are therefore the only thing worth describing, and they are scoped to
+// the owner so one signed-in user can never enumerate another's transcripts.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // A practice session carries a full transcript of someone speaking. Treat
+    // it as private to its author.
+    match /practiceSessions/{sessionId} {
+      allow read: if isOwner(resource.data.userId);
+      allow write: if false;
+    }
+
+    // Streak state. Readable by its owner, writable only by the server so a
+    // client cannot award itself a streak.
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if false;
+
+      match /{document=**} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+    }
+
+    // The prompt of the day is the same for everyone and contains no user data.
+    match /dailyPrompts/{dayKey} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // Anything not named above is denied. Listing this explicitly means a new
+    // collection is locked by default rather than inheriting someone's guess.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
