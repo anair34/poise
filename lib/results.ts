@@ -49,12 +49,14 @@ export function getScoreDelta(session: Session): ScoreDelta | null {
 
   const amount = safeScore(session.overallScore) - safeScore(session.previousScore);
   if (amount === 0) {
-    return { direction: "flat", amount: 0, label: "Even with your last session" };
+    return { direction: "flat", amount: 0, label: "Even with your last attempt" };
   }
+  // Worded rather than signed, so the direction survives without the arrow or
+  // its colour — which is what a screen reader and a monochrome display get.
   return {
     direction: amount > 0 ? "up" : "down",
     amount: Math.abs(amount),
-    label: `${Math.abs(amount)} from your previous session`,
+    label: `${Math.abs(amount)} ${amount > 0 ? "up" : "down"} from your last attempt`,
   };
 }
 

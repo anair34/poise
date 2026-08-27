@@ -7,27 +7,27 @@ function safeCount(value: unknown): number {
 }
 
 /**
- * A tiny bar row standing in for the measurement's position in a healthy band.
- * Deliberately unlabelled: it is a texture cue, and the number beside it is the
- * actual claim.
+ * A plain descriptive word for pace, or nothing.
+ *
+ * Deliberately descriptive rather than evaluative: "Fast" is an observation, and
+ * the scoring model — not this strip — is what decides whether fast was a
+ * problem for this particular answer. The middle band gets no label at all,
+ * because "Normal" is noise.
  */
-function Ticks({ filled }: { filled: number }) {
-  return (
-    <div aria-hidden className="mt-3 flex gap-[3px]">
-      {Array.from({ length: 8 }, (_, index) => (
-        <span
-          key={index}
-          className={
-            index < filled
-              ? "h-2.5 w-[3px] rounded-full bg-ember/70"
-              : "h-2.5 w-[3px] rounded-full bg-hairline"
-          }
-        />
-      ))}
-    </div>
-  );
+function paceNote(wpm: number): string | null {
+  if (wpm === 0) return null;
+  if (wpm < 110) return "Measured";
+  if (wpm > 180) return "Fast";
+  return null;
 }
 
+/**
+ * The deterministic measurements, as one compact line.
+ *
+ * These are facts, not verdicts, so they get secondary typography and no cards.
+ * Four equal boxes gave them the same presence as the coaching, which is the
+ * opposite of the priority the page is trying to communicate.
+ */
 export function SpeechMetrics({ metrics }: { metrics: Metrics }) {
   const wpm = safeCount(metrics?.wordsPerMinute);
   const fillers = safeCount(metrics?.fillerWordCount);
@@ -35,55 +35,46 @@ export function SpeechMetrics({ metrics }: { metrics: Metrics }) {
   const seconds = safeCount(metrics?.durationSeconds);
 
   const items = [
-    {
-      value: String(wpm),
-      unit: "WPM",
-      label: "Pace",
-      // 140–160 wpm is the comfortable middle of conversational speech.
-      filled: Math.min(8, Math.round((wpm / 200) * 8)),
-    },
+    { value: String(wpm), unit: "WPM", note: paceNote(wpm), label: "Pace" },
     {
       value: String(fillers),
       unit: fillers === 1 ? "filler" : "fillers",
+      note: null,
       label: "Filler words",
-      filled: Math.max(0, 8 - Math.min(8, fillers)),
     },
     {
       value: formatDuration(seconds),
-      unit: "elapsed",
+      unit: null,
+      note: null,
       label: "Duration",
-      filled: Math.min(8, Math.round((seconds / 60) * 8)),
     },
-    {
-      value: String(words),
-      unit: "words",
-      label: "Length",
-      filled: Math.min(8, Math.round((words / 160) * 8)),
-    },
+    { value: String(words), unit: "words", note: null, label: "Length" },
   ];
 
   return (
-    <section
-      aria-label="Speech metrics"
-      className="grid grid-cols-2 gap-3 xl:grid-cols-4"
-    >
-      {items.map((item) => (
-        <div
-          key={item.label}
-          className="rounded-xl border border-hairline bg-canvas px-4 py-4"
-        >
-          <p className="text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-ink-muted">
-            {item.label}
-          </p>
-          <p className="mt-2.5 flex items-baseline gap-1.5">
-            <span className="font-mono text-[1.5rem] leading-none tabular-nums text-ink">
-              {item.value}
-            </span>
-            <span className="text-[0.75rem] text-ink-muted">{item.unit}</span>
-          </p>
-          <Ticks filled={item.filled} />
-        </div>
-      ))}
+    <section aria-label="Speech metrics">
+      <dl className="flex flex-wrap items-baseline gap-x-8 gap-y-3 border-t border-hairline pt-5 sm:gap-x-12">
+        {items.map((item) => (
+          <div key={item.label} className="flex items-baseline gap-2">
+            <dt className="sr-only">{item.label}</dt>
+            <dd className="flex items-baseline gap-1.5">
+              <span className="font-mono text-[1.05rem] tabular-nums text-ink">
+                {item.value}
+              </span>
+              {item.unit ? (
+                <span className="text-[0.85rem] text-ink-muted">
+                  {item.unit}
+                </span>
+              ) : null}
+              {item.note ? (
+                <span className="ml-1 text-[0.78rem] text-ink-muted">
+                  {item.note}
+                </span>
+              ) : null}
+            </dd>
+          </div>
+        ))}
+      </dl>
     </section>
   );
 }

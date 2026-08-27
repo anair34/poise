@@ -1,15 +1,19 @@
 import { notFound, redirect } from "next/navigation";
+import { BeatYourScore } from "@/components/results/BeatYourScore";
 import { CoachingOpportunity } from "@/components/results/CoachingOpportunity";
 import { ResultActions } from "@/components/results/ResultActions";
+import { RetryComparison } from "@/components/results/RetryComparison";
 import { RewriteCard } from "@/components/results/RewriteCard";
 import { ScoreBreakdown } from "@/components/results/ScoreBreakdown";
 import { ScoreHero } from "@/components/results/ScoreHero";
+import { SessionRewards } from "@/components/results/SessionRewards";
 import { SpeechMetrics } from "@/components/results/SpeechMetrics";
 import { StrengthCard } from "@/components/results/StrengthCard";
 import { TranscriptDisclosure } from "@/components/results/TranscriptDisclosure";
 import { TopBar } from "@/components/ui/TopBar";
 import { getCurrentUser } from "@/lib/auth/server";
-import { toScoreRows } from "@/lib/results";
+import { buildRetryComparison } from "@/lib/gamification/retry";
+import { safeScore, toScoreRows } from "@/lib/results";
 import { getSessionForUser } from "@/lib/sessions";
 
 export const metadata = {
@@ -49,33 +53,58 @@ export default async function ResultsPage({
 
   const { feedback } = session;
 
+  // A retry compares against the attempt it was measured against. Loaded
+  // owner-scoped like everything else, and a missing parent degrades to an
+  // ordinary result rather than an error.
+  const parent = session.retryOfSessionId
+    ? await loadSession(session.retryOfSessionId, user.uid)
+    : null;
+  const comparison = parent ? buildRetryComparison(parent, session) : null;
+
   return (
-    <main className="mx-auto w-full max-w-[100rem] px-5 py-6 sm:px-8 lg:px-10">
+    // Narrower than the practice and calendar pages on purpose: this one is
+    // read rather than scanned, and a 100rem measure makes prose unreadable.
+    <main className="mx-auto w-full max-w-[72rem] px-5 py-6 sm:px-8">
       <TopBar streak={session.streak} />
 
-      <div className="flex flex-col gap-5 py-7">
+      {/* Rhythm rather than uniform cards: the hero, breakdown, strength and
+          transcript sit open on the paper, so the three white surfaces that
+          remain — coaching, retry, rewrite — are the ones that carry weight. */}
+      <div className="flex flex-col gap-14 py-10 sm:gap-16">
         <ScoreHero session={session} />
 
-        <SpeechMetrics metrics={session.metrics} />
+        {feedback?.opportunity ? (
+          <CoachingOpportunity note={feedback.opportunity} />
+        ) : null}
 
-        {/* Scores on the left, the coaching that explains them on the right. */}
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-          <section className="rounded-2xl border border-hairline bg-canvas px-6 py-5 sm:px-7">
-            <h2 className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-ink-muted">
-              How it scored
-            </h2>
-            <ScoreBreakdown rows={toScoreRows(session)} />
-          </section>
-
-          <div className="flex flex-col gap-5">
-            {feedback?.opportunity ? (
-              <CoachingOpportunity note={feedback.opportunity} />
-            ) : null}
-            {feedback?.strength ? (
-              <StrengthCard note={feedback.strength} />
-            ) : null}
-          </div>
+        <div className="flex flex-col gap-7">
+          <ScoreBreakdown rows={toScoreRows(session)} />
+          <SpeechMetrics metrics={session.metrics} />
         </div>
+
+        {session.gamification ? (
+          <SessionRewards
+            gamification={session.gamification}
+            streak={session.streak}
+          />
+        ) : null}
+
+        {/* A retry earns its comparison before being asked to go again. */}
+        {comparison ? (
+          <RetryComparison
+            comparison={comparison}
+            attemptNumber={session.attemptNumber ?? 2}
+          />
+        ) : null}
+
+        <BeatYourScore
+          sessionId={session.id}
+          promptId={session.promptId}
+          scoreToBeat={safeScore(session.overallScore)}
+          focus={feedback?.opportunity?.title}
+        />
+
+        {feedback?.strength ? <StrengthCard note={feedback.strength} /> : null}
 
         {feedback?.rewrite ? <RewriteCard rewrite={feedback.rewrite} /> : null}
 

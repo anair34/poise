@@ -15,6 +15,20 @@
 
   --animate-wave: wave 1.1s ease-in-out infinite;
   --animate-pulse-ring: pulse-ring 2.4s ease-out infinite;
+  /* One short settle on arrival, used behind `motion-safe:` only. Results are
+     a reward moment, but a reward that keeps moving becomes a distraction. */
+  --animate-rise: rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 
   @keyframes wave {
     0%,

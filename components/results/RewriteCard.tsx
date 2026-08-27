@@ -1,8 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Eyebrow } from "@/components/ui/Eyebrow";
 
+/**
+ * A model-written version of the same answer.
+ *
+ * Set as editorial prose — generous measure, large body type, no monospace and
+ * no tinted panel. It is something to read aloud, and anything that made it look
+ * like a code sample would work against that.
+ */
 export function RewriteCard({ rewrite }: { rewrite: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -22,20 +28,24 @@ export function RewriteCard({ rewrite }: { rewrite: string }) {
   }, [rewrite]);
 
   return (
-    <section className="rounded-2xl border border-hairline bg-canvas px-6 py-6 sm:px-8 sm:py-7">
+    <section className="rounded-3xl border border-hairline bg-canvas px-6 py-8 sm:px-10 sm:py-10">
       <div className="flex items-center justify-between gap-4">
-        <Eyebrow className="text-ink-muted">Try this instead</Eyebrow>
+        <h2 className="text-[0.7rem] font-semibold uppercase tracking-[0.18em] text-ink-muted">
+          Try this instead
+        </h2>
         <button
           type="button"
           onClick={copy}
-          className="rounded text-[0.78rem] text-ink-muted transition-colors duration-200 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/40"
+          className="rounded px-2 py-1 text-[0.82rem] text-ink-muted transition-colors duration-200 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/40 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
         >
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <p className="mt-5 max-w-4xl text-[1.15rem] leading-[1.7] tracking-[-0.01em] text-ink">
+
+      <p className="mt-6 max-w-[46rem] text-[clamp(1.15rem,1.9vw,1.4rem)] leading-[1.65] tracking-[-0.015em] text-ink">
         {rewrite}
       </p>
+
       <p aria-live="polite" className="sr-only">
         {copied ? "Copied to clipboard" : ""}
       </p>

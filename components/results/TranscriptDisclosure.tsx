@@ -7,8 +7,8 @@ export function TranscriptDisclosure({
   prompt: string;
 }) {
   return (
-    <details className="group rounded-2xl border border-hairline bg-canvas px-6 py-4 sm:px-8">
-      <summary className="flex cursor-pointer list-none items-center gap-2 py-1 text-[0.85rem] text-ink-soft transition-colors duration-200 hover:text-ink [&::-webkit-details-marker]:hidden">
+    <details className="group border-t border-hairline pt-5">
+      <summary className="flex w-fit cursor-pointer list-none items-center gap-2 rounded py-1 text-[0.88rem] text-ink-soft transition-colors duration-200 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember/40 focus-visible:ring-offset-2 focus-visible:ring-offset-paper [&::-webkit-details-marker]:hidden">
         <span
           aria-hidden
           className="inline-block text-ink-muted transition-transform duration-200 group-open:rotate-90"
