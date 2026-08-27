@@ -19,6 +19,49 @@ built around repetition:
 I built Poise to explore how product mechanics can turn a simple AI utility into
 a habit-forming learning experience.
 
+## Demo
+
+<!-- HERO SCREENSHOT: add docs/images/results.png, then replace the block below with:
+<p align="center">
+  <img src="docs/images/results.png" alt="Poise results page showing the overall score, the primary coaching opportunity, the four dimension scores, and deterministic speech metrics">
+</p>
+-->
+
+<p align="center"><em>Hero screenshot placeholder:</em> <code>docs/images/results.png</code></p>
+
+<!-- SCREENSHOT GRID: replace each placeholder cell below with an image tag, for example:
+     <td><img src="docs/images/landing.png" alt="Poise landing page"></td>
+-->
+
+<table>
+<tr>
+<th width="33%">Landing</th>
+<th width="33%">Sign in</th>
+<th width="33%">Practice</th>
+</tr>
+<tr>
+<td align="center"><code>docs/images/landing.png</code></td>
+<td align="center"><code>docs/images/signin.png</code></td>
+<td align="center"><code>docs/images/practice.png</code></td>
+</tr>
+</table>
+
+<table>
+<tr>
+<th width="33%">Recording</th>
+<th width="33%">Daily quests</th>
+<th width="33%">Progress</th>
+</tr>
+<tr>
+<td align="center"><code>docs/images/recording.png</code></td>
+<td align="center"><code>docs/images/quests.png</code></td>
+<td align="center"><code>docs/images/progress.png</code></td>
+</tr>
+</table>
+
+**Core flow:** sign in → today's challenge → record up to 60 seconds → scored
+feedback → one coaching focus → beat your score → streak, XP, and quests.
+
 ## Why I built Poise
 
 A lot of AI products stop at one shape:
@@ -81,12 +124,6 @@ The landing page makes one promise ("Speak better. One minute at a time.") and
 offers one action. There is no feature tour, because the product only works if
 someone actually records something.
 
-<!-- SCREENSHOT: add docs/images/landing.png, then replace this comment with:
-![Poise landing page showing the headline "Speak better. One minute at a time." and the entry point into the daily challenge](docs/images/landing.png)
--->
-
-*Screenshot placeholder: `docs/images/landing.png`*
-
 ```
 Landing -> Today's Challenge
 ```
@@ -96,18 +133,6 @@ Landing -> Today's Challenge
 Firebase Authentication provides persistent identity, which is what lets a
 streak, a level, and a history belong to someone. Google sign-in and email with
 password are both supported, along with password reset.
-
-<!-- SCREENSHOTS: add docs/images/signin.png (and optionally docs/images/google-signin.png).
-     These two read well side by side. Replace this comment with:
-<table>
-<tr>
-<td width="50%"><img src="docs/images/signin.png" alt="Poise sign-in screen with email and password fields and a Google sign-in button"></td>
-<td width="50%"><img src="docs/images/google-signin.png" alt="Google OAuth account chooser during Poise sign-in"></td>
-</tr>
-</table>
--->
-
-*Screenshot placeholders: `docs/images/signin.png`, `docs/images/google-signin.png`*
 
 ```
 Sign in -> Google OAuth -> persistent Poise profile
@@ -123,17 +148,6 @@ The practice screen deliberately shows almost nothing else. Someone who is about
 to speak for a minute does not need their streak, their level, and their quest
 list competing for attention.
 
-<!-- SCREENSHOTS: add docs/images/practice.png and docs/images/recording.png, then replace with:
-<table>
-<tr>
-<td width="50%"><img src="docs/images/practice.png" alt="Poise practice screen showing the day's speaking prompt and the recorder at rest"></td>
-<td width="50%"><img src="docs/images/recording.png" alt="Poise recorder mid-recording with a live waveform and countdown"></td>
-</tr>
-</table>
--->
-
-*Screenshot placeholders: `docs/images/practice.png`, `docs/images/recording.png`*
-
 ### 4. Get coached
 
 The results page returns an overall score, four dimension scores (clarity,
@@ -145,12 +159,6 @@ It is built around one question: **what should I do differently on my next
 attempt?** The primary improvement gets the most visual weight on the page, and
 praise sits below it. Praise is what makes someone feel good about the session
 they just finished. The improvement is what makes the next one better.
-
-<!-- SCREENSHOT: add docs/images/results.png (worth a tall, full-width capture), then replace with:
-![Poise results page showing the overall score, the primary coaching opportunity, the four dimension scores, and deterministic speech metrics](docs/images/results.png)
--->
-
-*Screenshot placeholder: `docs/images/results.png`*
 
 ### 5. Complete quests
 
@@ -167,12 +175,6 @@ Each user gets two quests per day, one standard and one stretch. Quests turn
 Quests are evaluated on the server from persisted session data. The browser
 cannot mark one complete, because a quest the user can award themselves is not
 an objective.
-
-<!-- SCREENSHOT: add docs/images/quests.png, then replace with:
-![Poise daily quests showing one standard and one stretch quest, with completion state and XP values](docs/images/quests.png)
--->
-
-*Screenshot placeholder: `docs/images/quests.png`*
 
 ### 6. Beat your score
 
@@ -205,13 +207,11 @@ together the current streak, longest streak, level and XP progress, today's
 quests, whether today's challenge is done, and a practice calendar. Selecting a
 day shows the sessions recorded that day and links through to those results.
 
-<!-- SCREENSHOTS: add docs/images/progress.png and docs/images/calendar.png, then replace with:
-![Poise conversations dashboard showing streak, level and XP progress, today's quests, and challenge status](docs/images/progress.png)
-
+<!-- SCREENSHOT: add docs/images/calendar.png, then replace this comment with:
 ![Poise practice calendar for a month, with practiced days filled and one day selected to show its sessions](docs/images/calendar.png)
 -->
 
-*Screenshot placeholders: `docs/images/progress.png`, `docs/images/calendar.png`*
+*Screenshot placeholder: `docs/images/calendar.png`*
 
 The longer loop:
 

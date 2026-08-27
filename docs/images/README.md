@@ -1,21 +1,36 @@
 # Screenshots
 
-Screenshots referenced by the root `README.md`. Add PNGs here using exactly
-these filenames, then uncomment the matching image tag in the README (each
-placeholder contains the line to paste).
+Screenshots referenced by the root `README.md`. Add PNGs here using exactly these
+filenames, then swap them into the README where marked.
 
-| File | Screen | Notes |
-| --- | --- | --- |
-| `landing.png` | `/` | Hero and the entry point into today's challenge. |
-| `signin.png` | `/signin` | Email and password form with the Google button. |
-| `google-signin.png` | Google OAuth popup | Optional. Skip if it adds little over `signin.png`. |
-| `practice.png` | `/practice` | The prompt and the recorder at rest. |
-| `recording.png` | `/practice` | Mid-recording, with the live waveform moving. |
-| `results.png` | `/results/[id]` | Score hero through the coaching block. Worth a tall capture. |
-| `quests.png` | `/conversations` | The two daily quests, ideally with one complete. |
-| `beat-your-score.png` | `/results/[id]` | The retry CTA, or the comparison table on a completed retry. |
-| `progress.png` | `/conversations` | Dashboard summary: streak, level, quests, challenge state. |
-| `calendar.png` | `/conversations` | The practice calendar with a day selected. |
+The Demo section near the top of the README holds a hero image and two
+three-column grids. Two further screenshots sit inline in the walkthrough,
+because they carry more detail than a grid cell can show.
+
+| File | Screen | Used in | Notes |
+| --- | --- | --- | --- |
+| `results.png` | `/results/[id]` | Demo hero | Score hero through the coaching block. Worth a tall capture. |
+| `landing.png` | `/` | Demo grid 1 | Hero and the entry point into today's challenge. |
+| `signin.png` | `/signin` | Demo grid 1 | Email and password form with the Google button. |
+| `practice.png` | `/practice` | Demo grid 1 | The prompt and the recorder at rest. |
+| `recording.png` | `/practice` | Demo grid 2 | Mid-recording, with the live waveform moving. |
+| `quests.png` | `/conversations` | Demo grid 2 | The two daily quests, ideally with one complete. |
+| `progress.png` | `/conversations` | Demo grid 2 | Dashboard summary: streak, level, quests, challenge state. |
+| `beat-your-score.png` | `/results/[id]` | Inline, step 6 | The retry CTA, or the comparison table on a completed retry. |
+| `calendar.png` | `/conversations` | Inline, step 7 | The practice calendar with a day selected. |
+| `google-signin.png` | Google OAuth popup | Unused | Optional. Add a cell for it only if it shows more than `signin.png`. |
+
+In the Demo grids, replace a placeholder cell like this:
+
+```html
+<td align="center"><code>docs/images/landing.png</code></td>
+```
+
+with the image:
+
+```html
+<td><img src="docs/images/landing.png" alt="Poise landing page"></td>
+```
 
 Capture guidance:
 
