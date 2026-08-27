@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth/server";
 import { getDailyPromptForDay, resolvePromptById } from "@/lib/dailyPrompts";
 import { getLibraryPrompt } from "@/lib/prompts";
 import { toDayKey, visibleStreak } from "@/lib/streaks";
-import { getUserState } from "@/lib/users";
+import { getUserGamification } from "@/lib/users";
 
 export const metadata = {
   title: "Today's challenge — Poise",
@@ -38,22 +38,26 @@ export default async function PracticePage({
   }
 
   const state = user
-    ? await getUserState(user.uid).catch(() => null)
+    ? await getUserGamification(user.uid).catch(() => null)
     : null;
 
-  const streak = state ? visibleStreak(state, dayKey) : 0;
+  const streak = state
+    ? visibleStreak(
+        {
+          currentStreak: state.currentStreak,
+          longestStreak: state.longestStreak,
+          lastPracticeDay: state.lastPracticeDate,
+          daysPracticed: state.totalPracticeDays,
+        },
+        dayKey,
+      )
+    : 0;
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col px-5 py-7 sm:px-7 sm:py-9">
+    <main className="mx-auto w-full max-w-[100rem] px-5 py-6 sm:px-8 lg:px-10">
       <TopBar streak={streak} />
-      <div className="flex flex-1 items-center py-10">
-        <div className="w-full">
-          <Recorder
-            prompt={prompt}
-            streak={streak}
-            isSignedIn={Boolean(user)}
-          />
-        </div>
+      <div className="py-8">
+        <Recorder prompt={prompt} streak={streak} isSignedIn={Boolean(user)} />
       </div>
     </main>
   );

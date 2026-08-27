@@ -21,6 +21,7 @@ export function RecorderCard({
   error,
   interactive = true,
   showRing = false,
+  layout = "stacked",
   onStart,
   onFinish,
   onCancel,
@@ -36,6 +37,12 @@ export function RecorderCard({
   error?: string | null;
   interactive?: boolean;
   showRing?: boolean;
+  /**
+   * "split" puts the prompt and the recorder side by side on wide screens. The
+   * landing page mockup stays stacked, since it renders inside a narrow frame
+   * where a viewport-width breakpoint would otherwise mislay it.
+   */
+  layout?: "stacked" | "split";
   onStart?: () => void;
   onFinish?: () => void;
   onCancel?: () => void;
@@ -43,6 +50,7 @@ export function RecorderCard({
 }) {
   const isRecording = state === "recording";
   const isProcessing = state === "processing";
+  const isSplit = layout === "split";
 
   return (
     <div
@@ -54,10 +62,21 @@ export function RecorderCard({
     >
       <ChallengeHeader category={category} streak={streak} />
 
-      <div className="px-6 pb-7 pt-7 sm:px-9 sm:pb-9 sm:pt-9">
-        <PromptBlock prompt={prompt} />
+      <div
+        className={cn(
+          "px-6 pb-7 pt-7 sm:px-9 sm:pb-9 sm:pt-9",
+          isSplit &&
+            "lg:grid lg:min-h-[56vh] lg:grid-cols-2 lg:items-center lg:gap-12 lg:px-10",
+        )}
+      >
+        <PromptBlock prompt={prompt} size={isSplit ? "large" : "default"} />
 
-        <div className="mt-9 flex flex-col items-center">
+        <div
+          className={cn(
+            "mt-9 flex flex-col items-center",
+            isSplit && "lg:mt-0 lg:border-l lg:border-hairline lg:pl-12",
+          )}
+        >
           <MicButton
             state={state}
             showRing={showRing || isRecording}
@@ -70,6 +89,7 @@ export function RecorderCard({
           <p
             className={cn(
               "mt-6 font-mono text-[1.75rem] tabular-nums tracking-tight transition-colors duration-300 sm:text-[2rem]",
+              isSplit && "lg:text-[2.5rem]",
               isRecording ? "text-ember" : "text-ink",
             )}
             aria-live="off"
@@ -85,7 +105,10 @@ export function RecorderCard({
             levels={levels}
             live={isRecording}
             animated={!isProcessing}
-            className="mt-7 w-full max-w-[280px]"
+            className={cn(
+              "mt-7 w-full max-w-[280px]",
+              isSplit && "lg:max-w-[360px]",
+            )}
           />
 
           {error ? (

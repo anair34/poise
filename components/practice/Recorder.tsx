@@ -151,6 +151,7 @@ export function Recorder({
     return (
       <div>
         <RecorderCard
+          layout="split"
           category={prompt.category}
           streak={streak}
           prompt={prompt.text}
@@ -201,6 +202,7 @@ export function Recorder({
   return (
     <div>
       <RecorderCard
+        layout="split"
         category={prompt.category}
         streak={streak}
         prompt={prompt.text}
@@ -218,11 +220,11 @@ export function Recorder({
         onCancel={recorder.cancel}
       />
 
-      <p className="mt-5 text-center text-[0.78rem] text-ink-muted">
-        {state === "processing"
-          ? "Hang tight — this usually takes a few seconds."
-          : prompt.coachingTip}
-      </p>
+      {state === "processing" ? (
+        <p className="mt-5 text-center text-[0.78rem] text-ink-muted">
+          Hang tight — this usually takes a few seconds.
+        </p>
+      ) : null}
       <p aria-live="polite" className="sr-only">
         {state === "recording"
           ? "Recording in progress"
