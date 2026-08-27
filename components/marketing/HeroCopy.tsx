@@ -1,5 +1,5 @@
 import { ArrowGlyph, Button } from "@/components/ui/Button";
-import { GoogleGlyph } from "@/components/ui/GoogleGlyph";
+import { GetStartedButton } from "@/components/marketing/GetStartedButton";
 
 export function HeroCopy() {
   return (
@@ -15,10 +15,7 @@ export function HeroCopy() {
       </p>
 
       <div className="mt-9 flex flex-wrap items-center gap-3">
-        <Button href="/signup" variant="ghost">
-          <GoogleGlyph />
-          Get started with Google
-        </Button>
+        <GetStartedButton />
         <Button href="/practice">
           Try practicing now! <ArrowGlyph />
         </Button>

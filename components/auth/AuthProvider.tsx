@@ -26,6 +26,7 @@ import {
   isFirebaseClientConfigured,
 } from "@/lib/firebase/client";
 import { CANCELLED, authErrorMessage } from "@/lib/auth/errors";
+import { establishSessionCookie } from "@/lib/auth/establishCookie";
 
 export interface SessionUser {
   uid: string;
@@ -71,22 +72,6 @@ function toSessionUser(user: User): SessionUser {
   };
 }
 
-/** Trades an ID token for the httpOnly session cookie the server reads. */
-async function establishCookie(user: User): Promise<void> {
-  const idToken = await user.getIdToken(true);
-  const response = await fetch("/api/auth/session", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ idToken }),
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string }
-      | null;
-    throw new Error(payload?.error ?? "Could not sign you in.");
-  }
-}
-
 function toResult(caught: unknown): AuthResult {
   const message = authErrorMessage(caught);
   if (message === CANCELLED) return { ok: false, cancelled: true };
@@ -125,7 +110,7 @@ export function AuthProvider({
       if (!firebaseUser || user || isRepairing.current) return;
 
       isRepairing.current = true;
-      void establishCookie(firebaseUser)
+      void establishSessionCookie(firebaseUser)
         .then(() => {
           setUser(toSessionUser(firebaseUser));
           router.refresh();
@@ -142,7 +127,7 @@ export function AuthProvider({
   /** Shared tail of every successful sign-in. */
   const complete = useCallback(
     async (firebaseUser: User): Promise<AuthResult> => {
-      await establishCookie(firebaseUser);
+      await establishSessionCookie(firebaseUser);
       setUser(toSessionUser(firebaseUser));
       router.refresh();
       return { ok: true };
