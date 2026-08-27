@@ -1,8 +1,16 @@
 import { redirect } from "next/navigation";
+import {
+  DashboardSummary,
+  QuestList,
+} from "@/components/conversations/DashboardSummary";
 import { PracticeCalendar } from "@/components/conversations/PracticeCalendar";
 import { ArrowGlyph, Button } from "@/components/ui/Button";
 import { TopBar } from "@/components/ui/TopBar";
 import { getCurrentUser } from "@/lib/auth/server";
+import {
+  getDailyQuestState,
+  getPerfectQuestDays,
+} from "@/lib/gamification/dailyQuests";
 import { getRecentUserSessions } from "@/lib/sessions";
 import { toDayKey, visibleStreak } from "@/lib/streaks";
 import { getUserGamification } from "@/lib/users";
@@ -19,12 +27,19 @@ export default async function ConversationsPage() {
   if (!user) redirect("/signin?next=%2Fconversations");
 
   const dayKey = toDayKey();
-  const [state, sessions] = await Promise.all([
+  const [state, sessions, perfectDays] = await Promise.all([
     getUserGamification(user.uid).catch(() => null),
     // A year of history, so paging back through months has something to show
     // without a round trip per month.
     getRecentUserSessions(user.uid, 365).catch(() => [] as Session[]),
+    getPerfectQuestDays(user.uid).catch(() => [] as string[]),
   ]);
+
+  // Quests depend on the user document for eligibility, so this waits on the
+  // read above rather than joining the batch.
+  const quests = await getDailyQuestState(user.uid, dayKey, state?.doc).catch(
+    () => null,
+  );
 
   const streak = state
     ? visibleStreak(
@@ -56,6 +71,14 @@ export default async function ConversationsPage() {
               Today&apos;s challenge <ArrowGlyph />
             </Button>
           </div>
+
+          {/* A first-time user is exactly who benefits most from seeing what
+              today is worth, so the quests show before any history exists. */}
+          {quests && quests.total > 0 ? (
+            <div className="mt-10">
+              <QuestList quests={quests} />
+            </div>
+          ) : null}
         </div>
       </main>
     );
@@ -65,18 +88,30 @@ export default async function ConversationsPage() {
     <main className="mx-auto w-full max-w-[100rem] px-5 py-6 sm:px-8 lg:px-10">
       <TopBar streak={streak} />
 
-      <div className="py-7">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <h1 className="text-[clamp(1.7rem,3vw,2.2rem)] font-semibold leading-[1.1] tracking-[-0.03em] text-ink">
-            Everything you&apos;ve said out loud.
-          </h1>
-          <Button href="/practice">
-            {doneToday ? "Practice again" : "Today's challenge"} <ArrowGlyph />
-          </Button>
-        </div>
+      <div className="flex flex-col gap-7 py-7">
+        {quests && state ? (
+          <DashboardSummary
+            displayName={user.name}
+            streak={streak}
+            longestStreak={state.longestStreak}
+            levelProgress={state.levelProgress}
+            doneToday={doneToday}
+            quests={quests}
+          />
+        ) : null}
 
-        <div className="mt-7">
-          <PracticeCalendar sessions={sessions} />
+        <div>
+          <h2 className="text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-ink-muted">
+            Your conversations
+          </h2>
+          <div className="mt-3">
+            <PracticeCalendar
+              sessions={sessions}
+              streak={streak}
+              longestStreak={state?.longestStreak ?? 0}
+              perfectDays={perfectDays}
+            />
+          </div>
         </div>
       </div>
     </main>

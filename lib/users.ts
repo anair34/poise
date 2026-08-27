@@ -9,6 +9,7 @@ import {
   type CompletionState,
   type StreakState,
 } from "./streaks";
+import { getLevelProgress, type LevelProgress } from "./gamification/levels";
 
 export const USERS_COLLECTION = "users";
 
@@ -65,6 +66,16 @@ export interface UserDoc {
   totalSessions: number;
   /** Overall score of the previous session, used for the results-page delta. */
   lastOverallScore: number | null;
+  /**
+   * Best overall score ever recorded. The bar a personal best must clear.
+   * Server-written only, so a client cannot declare itself a record holder.
+   */
+  bestOverallScore: number | null;
+  /**
+   * Lifetime XP. Level is *derived* from this (see `gamification/levels.ts`)
+   * and deliberately not stored, so the two can never disagree.
+   */
+  totalXp: number;
 }
 
 export interface UserProfileInput {
@@ -116,6 +127,30 @@ export interface CompletionRecord {
   longestStreak: number;
   /** Overall score of the prior session, or undefined for a first session. */
   previousScore?: number;
+
+  // Gamification outcome, returned so the API can log and the client can route
+  // without a second read.
+  isRetry: boolean;
+  attemptNumber: number;
+  xpEarned: number;
+  totalXp: number;
+  level: number;
+  didLevelUp: boolean;
+  questsCompleted: string[];
+  isPersonalBest: boolean;
+}
+
+export const XP_EVENTS_COLLECTION = "xpEvents";
+
+/**
+ * One awarded XP event, at `users/{uid}/xpEvents/{eventId}`.
+ *
+ * The document id *is* the idempotency key — see `gamification/xp.ts`. Existence
+ * means "already paid", which is why awarding checks for the document rather
+ * than tracking a count anywhere.
+ */
+export function xpEventRef(uid: string, eventId: string): DocumentReference {
+  return userDocRef(uid).collection(XP_EVENTS_COLLECTION).doc(eventId);
 }
 
 /**
@@ -188,6 +223,8 @@ const INITIAL_PRACTICE_STATE = {
   lastCompletedChallengeDate: null,
   totalSessions: 0,
   lastOverallScore: null,
+  bestOverallScore: null,
+  totalXp: 0,
 } as const;
 
 /**
@@ -251,6 +288,13 @@ export interface UserGamification {
   lastPracticeDate: string | null;
   lastCompletedChallengeDate: string | null;
   lastOverallScore: number | null;
+  bestOverallScore: number | null;
+  totalXp: number;
+  /** Derived from `totalXp`, never stored. */
+  level: number;
+  levelProgress: LevelProgress;
+  /** The raw document, for callers that need quest eligibility. */
+  doc: Partial<UserDoc> | undefined;
 }
 
 export async function getUserGamification(
@@ -263,6 +307,8 @@ export async function getUserGamification(
 
   const state = toCompletionState(data);
   const lastPracticeDate = data?.lastPracticeDate ?? state.lastPracticeDay;
+  const totalXp = data?.totalXp ?? 0;
+  const levelProgress = getLevelProgress(totalXp);
 
   return {
     uid,
@@ -275,5 +321,10 @@ export async function getUserGamification(
     lastCompletedChallengeDate:
       data?.lastCompletedChallengeDate ?? lastPracticeDate,
     lastOverallScore: data?.lastOverallScore ?? null,
+    bestOverallScore: data?.bestOverallScore ?? null,
+    totalXp,
+    level: levelProgress.level,
+    levelProgress,
+    doc: data,
   };
 }

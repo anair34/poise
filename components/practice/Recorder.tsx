@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RecorderCard } from "./RecorderCard";
+import { RetryBanner } from "./RetryBanner";
 import { SignInButton } from "@/components/auth/SignInButton";
 import { formatClock } from "@/lib/format";
 import { MAX_DURATION_MS, fileExtensionFor } from "@/lib/recording";
 import { useAudioRecorder } from "@/lib/useAudioRecorder";
 import type { Prompt, RecorderState } from "@/lib/types";
+import type { RetryContext } from "./RetryBanner";
 
 const PROCESSING_MESSAGES = [
   "Transcribing your response…",
@@ -24,10 +26,13 @@ export function Recorder({
   prompt,
   streak,
   isSignedIn,
+  retry,
 }: {
   prompt: Prompt;
   streak: number;
   isSignedIn: boolean;
+  /** Present when this is a "beat your score" attempt. */
+  retry?: RetryContext;
 }) {
   const router = useRouter();
   const [isProcessing, setIsProcessing] = useState(false);
@@ -50,6 +55,7 @@ export function Recorder({
         );
         formData.append("promptId", prompt.id);
         formData.append("durationSeconds", durationSeconds.toFixed(2));
+        if (retry) formData.append("retryOf", retry.sessionId);
 
         const response = await fetch("/api/analyze", {
           method: "POST",
@@ -83,7 +89,7 @@ export function Recorder({
         );
       }
     },
-    [prompt.id, router],
+    [prompt.id, retry, router],
   );
 
   /**
@@ -201,6 +207,7 @@ export function Recorder({
 
   return (
     <div>
+      {retry ? <RetryBanner retry={retry} /> : null}
       <RecorderCard
         layout="split"
         category={prompt.category}

@@ -160,9 +160,21 @@ function DayDetail({
   );
 }
 
-export function PracticeCalendar({ sessions }: { sessions: Session[] }) {
+export function PracticeCalendar({
+  sessions,
+  streak = 0,
+  longestStreak = 0,
+  perfectDays = [],
+}: {
+  sessions: Session[];
+  streak?: number;
+  longestStreak?: number;
+  /** Day keys where every assigned quest was completed. */
+  perfectDays?: string[];
+}) {
   const today = todayKey();
   const currentMonth = monthCursorFor(today);
+  const perfect = useMemo(() => new Set(perfectDays), [perfectDays]);
 
   const [cursor, setCursor] = useState<MonthCursor>(currentMonth);
   const [selected, setSelected] = useState<string>(today);
@@ -191,6 +203,15 @@ export function PracticeCalendar({ sessions }: { sessions: Session[] }) {
 
   const selectedSessions = byDay.get(selected) ?? [];
   const atCurrentMonth = isSameMonth(cursor, currentMonth);
+
+  const practiceDaysThisMonth = useMemo(() => {
+    const prefix = `${cursor.year}-${String(cursor.month + 1).padStart(2, "0")}`;
+    let count = 0;
+    for (const key of byDay.keys()) {
+      if (key.startsWith(prefix)) count += 1;
+    }
+    return count;
+  }, [byDay, cursor]);
 
   return (
     <div className="flex flex-col gap-5 lg:flex-row lg:items-stretch lg:gap-6">
@@ -254,6 +275,9 @@ export function PracticeCalendar({ sessions }: { sessions: Session[] }) {
             const isToday = key === today;
             const isSelected = key === selected;
             const isFuture = key > today;
+            // Every quest done that day. Marked with a small dot rather than a
+            // badge or burst: it should reward a second look, not demand one.
+            const isPerfect = perfect.has(key) && daySessions.length > 0;
 
             return (
               <button
@@ -266,7 +290,7 @@ export function PracticeCalendar({ sessions }: { sessions: Session[] }) {
                   daySessions.length
                     ? `, ${daySessions.length} session${daySessions.length === 1 ? "" : "s"}, best score ${best}`
                     : ", no practice"
-                }`}
+                }${isPerfect ? ", all quests complete" : ""}`}
                 className={cn(
                   // A fixed height rather than a square, so widening the page
                   // fills the row instead of inflating every cell.
@@ -283,6 +307,15 @@ export function PracticeCalendar({ sessions }: { sessions: Session[] }) {
                 <span className={cn(isToday && "font-semibold underline")}>
                   {day}
                 </span>
+                {isPerfect ? (
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "absolute right-1.5 top-1.5 size-1.5 rounded-full",
+                      best !== null && best >= 80 ? "bg-white/80" : "bg-ember",
+                    )}
+                  />
+                ) : null}
                 {daySessions.length > 1 ? (
                   <span className="absolute bottom-1 text-[0.58rem] opacity-70">
                     ×{daySessions.length}
@@ -293,14 +326,29 @@ export function PracticeCalendar({ sessions }: { sessions: Session[] }) {
           })}
         </div>
 
-        <p className="mt-5 flex items-center gap-2 text-[0.7rem] text-ink-muted">
-          <span>Lower</span>
-          <span className="h-2.5 w-5 rounded-sm bg-ember/15" />
-          <span className="h-2.5 w-5 rounded-sm bg-ember/30" />
-          <span className="h-2.5 w-5 rounded-sm bg-ember/55" />
-          <span className="h-2.5 w-5 rounded-sm bg-ember" />
-          <span>Higher score</span>
-        </p>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
+          <p className="flex items-center gap-2 text-[0.7rem] text-ink-muted">
+            <span>Lower</span>
+            <span className="h-2.5 w-5 rounded-sm bg-ember/15" />
+            <span className="h-2.5 w-5 rounded-sm bg-ember/30" />
+            <span className="h-2.5 w-5 rounded-sm bg-ember/55" />
+            <span className="h-2.5 w-5 rounded-sm bg-ember" />
+            <span>Higher score</span>
+          </p>
+
+          <p className="flex flex-wrap items-center gap-x-5 gap-y-1 text-[0.72rem] tabular-nums text-ink-muted">
+            <span>
+              <span className="text-ink">{streak}</span> day streak
+            </span>
+            <span>
+              Longest <span className="text-ink">{longestStreak}</span>
+            </span>
+            <span>
+              <span className="text-ink">{practiceDaysThisMonth}</span> days this
+              month
+            </span>
+          </p>
+        </div>
       </section>
 
       <div className="lg:flex-1">

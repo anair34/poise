@@ -28,8 +28,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // Streak state. Readable by its owner, writable only by the server so a
-    // client cannot award itself a streak.
+    // Streak, XP, and quest state. Readable by its owner, writable only by the
+    // server so a client cannot award itself a streak, XP, or a completed quest.
+    //
+    // The recursive match covers the gamification subcollections:
+    //   users/{uid}/dailyQuests/{YYYY-MM-DD}  quest assignment and completion
+    //   users/{uid}/xpEvents/{eventId}        idempotency records for XP awards
+    // Both are server-written only. A client that could create an xpEvent could
+    // mint XP, and one that could edit dailyQuests could mark its own quests
+    // complete — which is exactly why write stays denied all the way down.
     match /users/{userId} {
       allow read: if isOwner(userId);
       allow write: if false;

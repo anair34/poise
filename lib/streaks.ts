@@ -202,3 +202,27 @@ export function applyCompletion(
     didReset: transition.didReset,
   };
 }
+
+/**
+ * Applies a *retry* to a user's aggregate.
+ *
+ * A retry is a real session and counts toward `totalSessions`, but it is
+ * explicitly not a completion: it cannot advance the streak, cannot add a
+ * practice day, and cannot move `lastPracticeDay`. That separation is the whole
+ * point of the mechanic — retrying has to be safe to do, or a user protecting a
+ * streak will avoid the thing that actually makes them better.
+ *
+ * The streak it reports is the streak the user already has, so the results page
+ * for a retry shows the same flame as the attempt it followed.
+ */
+export function applyRetry(state: CompletionState): Completion {
+  return {
+    isDailyCompletion: false,
+    streakEarned: state.currentStreak,
+    next: {
+      ...state,
+      totalSessions: state.totalSessions + 1,
+    },
+    didReset: false,
+  };
+}
