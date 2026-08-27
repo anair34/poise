@@ -21,30 +21,26 @@ a habit-forming learning experience.
 
 ## Demo
 
-<!-- HERO SCREENSHOT: add docs/images/results.png, then replace the block below with:
 <p align="center">
-  <img src="docs/images/results.png" alt="Poise results page showing the overall score, the primary coaching opportunity, the four dimension scores, and deterministic speech metrics">
+  <img src="docs/images/landing.png" alt="Poise landing page with the headline 'Speak better. One minute at a time.' beside a preview of the recorder mid-challenge">
 </p>
--->
-
-<p align="center"><em>Hero screenshot placeholder:</em> <code>docs/images/results.png</code></p>
-
-<!-- SCREENSHOT GRID: replace each placeholder cell below with an image tag, for example:
-     <td><img src="docs/images/landing.png" alt="Poise landing page"></td>
--->
 
 <table>
 <tr>
-<th width="33%">Landing</th>
 <th width="33%">Sign in</th>
+<th width="33%">Sign up</th>
 <th width="33%">Practice</th>
 </tr>
 <tr>
-<td align="center"><code>docs/images/landing.png</code></td>
-<td align="center"><code>docs/images/signin.png</code></td>
+<td><img src="docs/images/signin.png" alt="Poise sign-in card with a Continue with Google button above email and password fields"></td>
+<td><img src="docs/images/signup.png" alt="Poise account creation card with optional name, email, password, and confirm password fields"></td>
 <td align="center"><code>docs/images/practice.png</code></td>
 </tr>
 </table>
+
+<!-- Remaining cells are placeholders. Replace each one with an image tag, for example:
+     <td><img src="docs/images/practice.png" alt="Poise practice screen"></td>
+-->
 
 <table>
 <tr>
@@ -159,6 +155,12 @@ It is built around one question: **what should I do differently on my next
 attempt?** The primary improvement gets the most visual weight on the page, and
 praise sits below it. Praise is what makes someone feel good about the session
 they just finished. The improvement is what makes the next one better.
+
+<!-- SCREENSHOT: add docs/images/results.png (worth a tall, full-width capture), then replace this comment with:
+![Poise results page showing the overall score, the primary coaching opportunity, the four dimension scores, and deterministic speech metrics](docs/images/results.png)
+-->
+
+*Screenshot placeholder: `docs/images/results.png`*
 
 ### 5. Complete quests
 
